@@ -1,0 +1,50 @@
+#!/bin/sh /etc/rc.common
+# AP10 tested LAN2 native software RFS policy, 2026-10-20.
+START=99
+STOP=10
+USE_PROCD=1
+
+apply_rfs() {
+ local q count=0 tries=0
+ # Leave the native RPS masks and NAPI scheduling policy untouched.
+ while [ ! -w /sys/class/net/lan2/queues/rx-0/rps_flow_cnt ]; do
+  tries=$((tries + 1))
+  [ "$tries" -lt 10 ] || return 1
+  sleep 1
+ done
+ for q in /sys/class/net/lan2/queues/rx-*/rps_flow_cnt; do
+  [ -w "$q" ] || return 1
+  count=$((count + 1))
+ done
+ [ "$count" -eq 32 ] || return 1
+ for q in /sys/class/net/lan2/queues/rx-*/rps_flow_cnt; do
+  [ "$(cat "$q")" = 1024 ] || printf '1024\n' > "$q" || return 1
+ done
+ [ "$(cat /proc/sys/net/core/rps_sock_flow_entries)" = 4096 ] ||
+  printf '4096\n' > /proc/sys/net/core/rps_sock_flow_entries
+}
+
+start_service() { apply_rfs; }
+reload_service() {
+ # Native packet_steering has a 1000ms interface trigger; apply after it.
+ sleep 3
+ apply_rfs
+}
+service_triggers() {
+ procd_add_reload_trigger "network" "firewall"
+ procd_add_raw_trigger "interface.*" 3000 /etc/init.d/codex_rfs reload
+}
+stop_service() {
+ local q other=0
+ for q in /sys/class/net/lan2/queues/rx-*/rps_flow_cnt; do
+  [ -w "$q" ] || continue
+  [ "$(cat "$q")" != 1024 ] || printf '0\n' > "$q"
+ done
+ # Retain a global table used by any other interface or a changed policy.
+ for q in /sys/class/net/*/queues/rx-*/rps_flow_cnt; do
+  [ "$(cat "$q")" = 0 ] || other=1
+ done
+ if [ "$other" = 0 ] && [ "$(cat /proc/sys/net/core/rps_sock_flow_entries)" = 4096 ]; then
+  printf '0\n' > /proc/sys/net/core/rps_sock_flow_entries
+ fi
+}

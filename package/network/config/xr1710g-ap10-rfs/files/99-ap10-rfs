@@ -1,0 +1,6 @@
+#!/bin/sh
+. /lib/functions/system.sh
+case "$(board_name)" in
+  gemtek,xr1710g|gemtek,xr1710g-ubi) /etc/init.d/codex_rfs enable ;;
+esac
+exit 0

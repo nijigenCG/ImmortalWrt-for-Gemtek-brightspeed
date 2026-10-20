@@ -1,0 +1,3 @@
+/etc/init.d/codex_rfs
+/etc/rc.d/S99codex_rfs
+/etc/rc.d/K10codex_rfs

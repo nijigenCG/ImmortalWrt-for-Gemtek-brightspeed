@@ -1,0 +1,12 @@
+{
+  "netfilter_patch_applies_F0_to_sealed_pre_AP5_sources": true,
+  "all_17_key_source_outputs_match_deployed_AP10_build": true,
+  "source_checker_accepts_matching_source_and_rejects_corruption": true,
+  "adopted_RFS_service_byte_identical": true,
+  "three_shell_scripts_syntax_pass": true,
+  "AN7581_HZ_options_no_conflicting_duplicate": true,
+  "full_OpenWrt_kernel_prepare_run": false,
+  "this_consolidated_full_tree_compiled": false,
+  "this_consolidated_image_booted": false,
+  "production_mutation": false
+}

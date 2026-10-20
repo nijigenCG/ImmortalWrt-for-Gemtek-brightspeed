@@ -1,3 +1,5 @@
+> 本 fork 的 AP10 + RFS 改动、构建范围与实测限制见 [docs/ap10/README.md](docs/ap10/README.md)。
+
 <img src="https://avatars.githubusercontent.com/u/53193414?s=200&v=4" alt="logo" width="200" height="200" align="right">
 
 # ImmortalWrt-for-Gemtek-brightspeed XR1710G & XG2010G

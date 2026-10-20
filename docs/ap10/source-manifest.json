@@ -1,0 +1,62 @@
+{
+  "upstream": "https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed",
+  "base_commit": "04cc62e8928308598cf2e88bddee37ede658b814",
+  "scope": "Consolidated deployed AP10 source plus adopted RFS, not AP6 or July21 MCU candidate",
+  "kernel": "6.18.55",
+  "deployed_kernel_SHA256": "25474eb51102ddb166cc158f01962fa42da7895e5fa2250862ce9f97f859a85a",
+  "deployed_FIT_SHA256": "0aba1ac48306fb72e2254184f2d28afa2522690a41f594577be3a4a96e790d39",
+  "source_files": {
+    "drivers/net/ethernet/airoha/Kconfig": "8947728955ce142c0d8a51f618ba77e4b863cf40a23e9e325937190180aabeab",
+    "drivers/net/ethernet/airoha/Makefile": "48167aad82d0b3a45b474d1ea117317e66cfcaea3ae09056f7450dbf08156e16",
+    "drivers/net/ethernet/airoha/airoha_eth.c": "c171da068178fa42f21792365d0f775f3f79cebefa22a8eaa597ae3e6ed5115f",
+    "drivers/net/ethernet/airoha/airoha_eth.h": "d0b4f7fdcca024435949a653a16209df35722fb31921c83820574d7ac5d3426a",
+    "drivers/net/ethernet/airoha/airoha_npu.c": "2b0c5f001a089b28962d3bdf9f98d11e83db9a178163e0622833f0d408daba55",
+    "drivers/net/ethernet/airoha/airoha_ppe.c": "7dbdabb52c9fb853e70720b0aa8ae169b8e8ff00d0b66f4402b840b2f55747c6",
+    "drivers/net/ethernet/airoha/airoha_ppe_debugfs.c": "477a902bc1328d90d1495634609412079b56e284d872b8b1f88315c5e8fc8101",
+    "drivers/net/ethernet/airoha/airoha_regs.h": "144021d4548aac306ef09990e40f9df280521f95fb5a96925bd1a9070c619150"
+  },
+  "netfilter_sources": {
+    "include/net/flow_dissector.h": {
+      "before_SHA256": "d32b0459acf41d630b755c6575f79a678041ab9b34c929a6dd3ae00e0b1ee73e",
+      "after_SHA256": "fab661095bd01fd7f01005ef28c2b50e87bc010b442859e56384c003b24231c8"
+    },
+    "include/net/netfilter/nf_conntrack_brxing.h": {
+      "before_SHA256": null,
+      "after_SHA256": "2b196efeff16eb2ff629b25bbb8a1b81355fcd762ad77f3f5d655fb8062d0f07"
+    },
+    "include/net/netfilter/nf_conntrack_extend.h": {
+      "before_SHA256": "c6c2229eb8fe25dba4ac131e32cef8e30153aa57d1b43359b06b2e864f92f3ec",
+      "after_SHA256": "3df1aa44c5f9b4cdb87661ad41a39af55dc13c0a8db8b208f0d9d43135107c19"
+    },
+    "net/netfilter/nf_conntrack_extend.c": {
+      "before_SHA256": "56b72f79b7802e75aa93bc313bc82a4ed419f40a39af125713cd0e22a49b947a",
+      "after_SHA256": "8b4efa290331381bb9779823c00d5bba56a81673cbf44f10c4bff176e228e0c8"
+    },
+    "net/netfilter/nf_flow_table_inet.c": {
+      "before_SHA256": "1f5eb2f7765a3ea62432eb065c827ba32325877d9af2e141d0c98a41b3d8936e",
+      "after_SHA256": "6bd2a303e2881483b3f2c714f5efd622337b58a053bd6d353262e8252b5c8da7"
+    },
+    "net/netfilter/nf_flow_table_ip.c": {
+      "before_SHA256": "876853c1c23ceea4315ccd43e0110719bd8e5a3a9015416556b61349f69ec867",
+      "after_SHA256": "8b09b438a0e9041ddee41c9297a185f25bf64df7c2c03e69c6dd37431e75add1"
+    },
+    "net/netfilter/nf_flow_table_offload.c": {
+      "before_SHA256": "6c1ebd3240663cd2bf78a05cc48a9a5d7f8338aa75890d63e8190ab458097d23",
+      "after_SHA256": "72b53f4c0a47b302e2e275d98f5c9ddb3c4bb7fcd2f6e685cd075fc4ecb52e58"
+    },
+    "net/netfilter/nf_flow_table_path.c": {
+      "before_SHA256": "546fe35fe76eabaa569cd5404f766db3fd0b0cadcb0a0ff40dadcbde3a59817b",
+      "after_SHA256": "a92db039d474eca031684031f0333d75933fbbf7c3415494e370d2f141c31241"
+    },
+    "net/netfilter/nft_flow_offload.c": {
+      "before_SHA256": "fc315d95c699bae4f7557df52bdcb2111e7a17c78b81fee0bffb81518ab201ec",
+      "after_SHA256": "33ffd5da5127ff662a6b79184036e189105fa70652c387457ada7ff592d3352f"
+    }
+  },
+  "packet_steering_SHA256": "e80cbf701868e0ced9a68fd90e0660cac8358ea9ac30e215aecdfb1857be6260",
+  "RFS_service_SHA256": "bc8043fa0dfe97e506433e2b4d2101b40c4c197e75de975a0d6e0b1333abdb82",
+  "full_tree_rebuild_of_this_consolidation_completed": false,
+  "prior_AP10_kernel_and_126_modules_built": true,
+  "prior_matching_88_APK_packages_rebuilt": true,
+  "new_binary_or_flash_performed_by_repository_commit": false
+}

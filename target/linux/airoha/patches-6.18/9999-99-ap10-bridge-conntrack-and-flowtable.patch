@@ -1,0 +1,487 @@
+Subject: [PATCH] netfilter: retain AP10 bridge crossing, DSCP and PPE flow semantics
+
+Consolidated from the deployed AP5 bridge/DSCP fixes retained in AP10.
+Requires a coherent kernel and complete kernel-module rebuild.
+
+--- a/include/net/flow_dissector.h
++++ b/include/net/flow_dissector.h
+@@ -39,6 +39,7 @@
+ 
+ 	/* These flags are internal to the kernel */
+ 	FLOW_DIS_ENCAPSULATION		= (TCA_FLOWER_KEY_FLAGS_MAX << 1),
++	FLOW_DIS_IS_BRIDGED		= (TCA_FLOWER_KEY_FLAGS_MAX << 2),
+ };
+ 
+ enum flow_dissect_ret {
+--- /dev/null
++++ b/include/net/netfilter/nf_conntrack_brxing.h
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _NF_CONNTRACK_BRXING_H
++#define _NF_CONNTRACK_BRXING_H
++
++#include <linux/netfilter/nf_conntrack_tuple_common.h>
++#include <net/netfilter/nf_conntrack_extend.h>
++
++/* Bridge crossings of a connection, recorded before it is offloaded.
++ *
++ * A connection routed by a router reached through the bridge crosses the
++ * bridge twice with the same 5-tuple (A -> router, router -> B), and bridge
++ * conntrack merges both crossings into one ct. A flow can only describe one
++ * crossing, and PPE-style hardware keys entries by 5-tuple only, so the other
++ * crossing would get this crossing's L2 rewrite (loop or router bypass).
++ *
++ * The second crossing always enters on another port than the first one: it
++ * enters where the first crossing left. Record the first ingress port per
++ * direction; a different ingress port in the same direction marks the
++ * connection as crossing more than once. Such connections are not offloaded.
++ */
++struct nf_conn_brxing {
++	int	iif[IP_CT_DIR_MAX];
++	bool	multi;
++};
++
++static inline struct nf_conn_brxing *nf_conn_brxing_find(const struct nf_conn *ct)
++{
++#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
++	return nf_ct_ext_find(ct, NF_CT_EXT_BRXING);
++#else
++	return NULL;
++#endif
++}
++
++#endif /* _NF_CONNTRACK_BRXING_H */
+--- a/include/net/netfilter/nf_conntrack_extend.h
++++ b/include/net/netfilter/nf_conntrack_extend.h
+@@ -30,6 +30,9 @@
+ #endif
+ #if IS_ENABLED(CONFIG_NET_ACT_CT)
+ 	NF_CT_EXT_ACT_CT,
++#endif
++#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
++	NF_CT_EXT_BRXING,
+ #endif
+ 	NF_CT_EXT_NUM,
+ };
+--- a/net/netfilter/nf_conntrack_extend.c
++++ b/net/netfilter/nf_conntrack_extend.c
+@@ -23,11 +23,15 @@
+ #include <net/netfilter/nf_conntrack_labels.h>
+ #include <net/netfilter/nf_conntrack_synproxy.h>
+ #include <net/netfilter/nf_conntrack_act_ct.h>
++#include <net/netfilter/nf_conntrack_brxing.h>
+ #include <net/netfilter/nf_nat.h>
+ 
+ #define NF_CT_EXT_PREALLOC	128u /* conntrack events are on by default */
+ 
+ static const u8 nf_ct_ext_type_len[NF_CT_EXT_NUM] = {
++#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
++	[NF_CT_EXT_BRXING] = sizeof(struct nf_conn_brxing),
++#endif
+ 	[NF_CT_EXT_HELPER] = sizeof(struct nf_conn_help),
+ #if IS_ENABLED(CONFIG_NF_NAT)
+ 	[NF_CT_EXT_NAT] = sizeof(struct nf_conn_nat),
+@@ -57,7 +61,7 @@
+ static __always_inline unsigned int total_extension_size(void)
+ {
+ 	/* remember to add new extensions below */
+-	BUILD_BUG_ON(NF_CT_EXT_NUM > 10);
++	BUILD_BUG_ON(NF_CT_EXT_NUM > 11);
+ 
+ 	return sizeof(struct nf_ct_ext) +
+ 	       sizeof(struct nf_conn_help)
+@@ -83,6 +87,9 @@
+ #endif
+ #if IS_ENABLED(CONFIG_NET_ACT_CT)
+ 		+ sizeof(struct nf_conn_act_ct_ext)
++#endif
++#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
++		+ sizeof(struct nf_conn_brxing)
+ #endif
+ 	;
+ }
+--- a/net/netfilter/nf_flow_table_inet.c
++++ b/net/netfilter/nf_flow_table_inet.c
+@@ -7,6 +7,7 @@
+ #include <net/netfilter/nf_flow_table.h>
+ #include <net/netfilter/nf_tables.h>
+ #include <linux/if_vlan.h>
++#include <net/netfilter/nf_conntrack_brxing.h>
+ 
+ static unsigned int
+ nf_flow_offload_inet_hook(void *priv, struct sk_buff *skb,
+@@ -75,6 +76,16 @@
+ 	.owner		= THIS_MODULE,
+ };
+ 
++/* A second crossing invalidates the single L2 rewrite stored in PPE. */
++static bool nf_flow_bridge_gc(const struct flow_offload *flow)
++{
++	const struct nf_conn_brxing *rec = nf_conn_brxing_find(flow->ct);
++
++	return rec && READ_ONCE(rec->multi);
++}
++
++static struct nf_flowtable_type flowtable_bridge;
++
+ static struct nf_flowtable_type flowtable_ipv4 = {
+ 	.family		= NFPROTO_IPV4,
+ 	.init		= nf_flow_table_init,
+@@ -97,15 +108,21 @@
+ 
+ static int __init nf_flow_inet_module_init(void)
+ {
++	flowtable_bridge = flowtable_inet;
++	flowtable_bridge.family = NFPROTO_BRIDGE;
++	flowtable_bridge.gc = nf_flow_bridge_gc;
++
+ 	nft_register_flowtable_type(&flowtable_ipv4);
+ 	nft_register_flowtable_type(&flowtable_ipv6);
+ 	nft_register_flowtable_type(&flowtable_inet);
++	nft_register_flowtable_type(&flowtable_bridge);
+ 
+ 	return 0;
+ }
+ 
+ static void __exit nf_flow_inet_module_exit(void)
+ {
++	nft_unregister_flowtable_type(&flowtable_bridge);
+ 	nft_unregister_flowtable_type(&flowtable_inet);
+ 	nft_unregister_flowtable_type(&flowtable_ipv6);
+ 	nft_unregister_flowtable_type(&flowtable_ipv4);
+@@ -120,3 +137,5 @@
+ MODULE_ALIAS_NF_FLOWTABLE(AF_INET6);
+ MODULE_ALIAS_NF_FLOWTABLE(1); /* NFPROTO_INET */
+ MODULE_DESCRIPTION("Netfilter flow table mixed IPv4/IPv6 module");
++
++MODULE_ALIAS_NF_FLOWTABLE(AF_BRIDGE);
+--- a/net/netfilter/nf_flow_table_ip.c
++++ b/net/netfilter/nf_flow_table_ip.c
+@@ -386,6 +386,35 @@
+ 	return flow_offload_lookup(flow_table, &tuple);
+ }
+ 
++/* The bridge fast path pops the ingress VLAN; put the egress VLAN back.
++ * The other direction's ingress encap is this direction's egress encap.
++ */
++static void nf_flow_bridge_vlan_push(struct nf_flowtable *flow_table,
++				     struct flow_offload *flow,
++				     enum flow_offload_tuple_dir dir,
++				     struct sk_buff *skb)
++{
++	const struct flow_offload_tuple *other = &flow->tuplehash[!dir].tuple;
++	const struct flow_offload_tuple *this = &flow->tuplehash[dir].tuple;
++
++	if (flow_table->type->family != NFPROTO_BRIDGE || !other->encap_num)
++		return;
++
++	/* Tag handled by the switch hardware on this port */
++	if (other->in_vlan_ingress & BIT(0))
++		return;
++
++	/* Egress port is a VLAN device, which adds its tag itself */
++	if (this->out.ifidx != this->out.hw_ifidx)
++		return;
++
++	if (other->encap[0].proto == htons(ETH_P_8021Q) ||
++	    other->encap[0].proto == htons(ETH_P_8021AD))
++		__vlan_hwaccel_put_tag(skb, other->encap[0].proto,
++				       other->encap[0].id);
++}
++
++
+ static int nf_flow_offload_forward(struct nf_flowtable_ctx *ctx,
+ 				   struct nf_flowtable *flow_table,
+ 				   struct flow_offload_tuple_rhash *tuplehash,
+@@ -420,18 +449,21 @@
+ 	flow_offload_refresh(flow_table, flow, false);
+ 
+ 	nf_flow_encap_pop(skb, tuplehash);
++	nf_flow_bridge_vlan_push(flow_table, flow, dir, skb);
+ 	thoff -= ctx->offset;
+ 
+ 	iph = ip_hdr(skb);
+ 	nf_flow_nat_ip(flow, skb, thoff, dir, iph);
+ 
+ 	dscp = FIELD_GET(INET_DSCP_MASK, ipv4_get_dsfield(iph));
+-	if (tuplehash->tuple.dscp != dscp)
++	if (flow_table->type->family != NFPROTO_BRIDGE &&
++	    tuplehash->tuple.dscp != dscp)
+ 		ipv4_change_dsfield(iph, INET_ECN_MASK,
+ 				    FIELD_PREP(INET_DSCP_MASK,
+ 					       tuplehash->tuple.dscp));
+ 
+-	ip_decrease_ttl(iph);
++	if (flow_table->type->family != NFPROTO_BRIDGE)
++		ip_decrease_ttl(iph);
+ 	skb_clear_tstamp(skb);
+ 
+ 	if (flow_table->flags & NF_FLOWTABLE_COUNTER)
+@@ -716,17 +748,20 @@
+ 	flow_offload_refresh(flow_table, flow, false);
+ 
+ 	nf_flow_encap_pop(skb, tuplehash);
++	nf_flow_bridge_vlan_push(flow_table, flow, dir, skb);
+ 
+ 	ip6h = ipv6_hdr(skb);
+ 	nf_flow_nat_ipv6(flow, skb, dir, ip6h);
+ 
+ 	dscp = FIELD_GET(INET_DSCP_MASK, ipv6_get_dsfield(ip6h));
+-	if (tuplehash->tuple.dscp != dscp)
++	if (flow_table->type->family != NFPROTO_BRIDGE &&
++	    tuplehash->tuple.dscp != dscp)
+ 		ipv6_change_dsfield(ip6h, INET_ECN_MASK,
+ 				    FIELD_PREP(INET_DSCP_MASK,
+ 					       tuplehash->tuple.dscp));
+ 
+-	ip6h->hop_limit--;
++	if (flow_table->type->family != NFPROTO_BRIDGE)
++		ip6h->hop_limit--;
+ 	skb_clear_tstamp(skb);
+ 
+ 	if (flow_table->flags & NF_FLOWTABLE_COUNTER)
+--- a/net/netfilter/nf_flow_table_offload.c
++++ b/net/netfilter/nf_flow_table_offload.c
+@@ -830,6 +830,12 @@
+ 	if (err < 0)
+ 		goto err_flow_match;
+ 
++	/* Bridge flowtables preserve the IP hop count, including in PPE. */
++	if (flowtable->type->family == NFPROTO_BRIDGE) {
++		flow_rule->match.key.control.flags |= FLOW_DIS_IS_BRIDGED;
++		flow_rule->match.mask.control.flags |= FLOW_DIS_IS_BRIDGED;
++	}
++
+ 	flow_rule->rule->action.num_entries = 0;
+ 	if (flowtable->type->action(net, flow, dir, flow_rule) < 0)
+ 		goto err_flow_match;
+--- a/net/netfilter/nf_flow_table_path.c
++++ b/net/netfilter/nf_flow_table_path.c
+@@ -16,6 +16,8 @@
+ #include <net/netfilter/nf_conntrack_extend.h>
+ #include <net/netfilter/nf_flow_table.h>
+ #include "../bridge/br_private.h"
++#include <net/route.h>
++#include <net/ip6_route.h>
+ 
+ static enum flow_offload_xmit_type nft_xmit_type(struct dst_entry *dst)
+ {
+@@ -326,6 +328,11 @@
+ 		}
+ 
+ 		nft_br_vlan_dev_fill_forward_path(pkt, &ctx);
++		if (ft->data.type->family == NFPROTO_BRIDGE && ctx.num_vlans) {
++			info.encap[0].id = ctx.vlan[0].id;
++			info.encap[0].proto = ctx.vlan[0].proto;
++			info.num_encaps = 1;
++		}
+ 	}
+ 
+ 	if (nft_dev_fill_forward_path(&ctx, route, dst, ct, dir, ha, &stack) >= 0) {
+@@ -547,10 +554,81 @@
+ 	return ret;
+ }
+ 
++/* Native bridge hooks have no L3 route. A temporary bridge dst provides
++ * MTU/path discovery only; successful paths are always DIRECT and release
++ * these references in flow_offload_route_init().
++ */
++static int nft_flow_route_bridge_native(const struct nft_pktinfo *pkt,
++				       const struct nf_conn *ct,
++				       struct nf_flow_route *route,
++				       enum ip_conntrack_dir dir,
++				       struct nft_flowtable *ft)
++{
++	struct dst_entry *dst = NULL;
++	struct net_device *master;
++	int i;
++
++	if (!skb_mac_header_was_set(pkt->skb) ||
++	    !nft_flow_offload_is_bridging(pkt->skb))
++		return -ENOENT;
++
++	rcu_read_lock();
++	master = netdev_master_upper_dev_get_rcu(pkt->skb->dev);
++	if (master && netif_is_bridge_master(master)) {
++		switch (ct->tuplehash[dir].tuple.src.l3num) {
++		case NFPROTO_IPV4: {
++			struct rtable *rt;
++
++			rt = rt_dst_alloc(master, 0, RTN_UNICAST, true);
++			dst = rt ? &rt->dst : NULL;
++			break;
++		}
++		case NFPROTO_IPV6: {
++			struct rt6_info *rt;
++
++			rt = ip6_dst_alloc(nft_net(pkt), master, 0);
++			dst = rt ? &rt->dst : NULL;
++			break;
++		}
++		}
++	}
++	rcu_read_unlock();
++	if (!dst)
++		return -ENOENT;
++
++	dst_hold(dst);
++	nft_default_forward_path(route, dst, dir);
++	nft_default_forward_path(route, dst, !dir);
++	if (nft_dev_forward_path(pkt, route, ct, dir, ft) ||
++	    nft_dev_forward_path(pkt, route, ct, !dir, ft))
++		goto err;
++
++	for (i = 0; i < IP_CT_DIR_MAX; i++) {
++		/* Encapsulation that cannot be reproduced exactly stays on the
++		 * regular bridge path. In particular do not pop QinQ/PPPoE and
++		 * restore only one tag in the native bridge fast path.
++		 */
++		if (route->tuple[i].xmit_type != FLOW_OFFLOAD_XMIT_DIRECT ||
++		    route->tuple[i].in.num_encaps > 1 ||
++		    (route->tuple[i].in.num_encaps &&
++		     route->tuple[i].in.encap[0].proto != htons(ETH_P_8021Q) &&
++		     route->tuple[i].in.encap[0].proto != htons(ETH_P_8021AD)))
++			goto err;
++	}
++	return 0;
++err:
++	dst_release(dst);
++	dst_release(dst);
++	return -ENOENT;
++}
++
+ int nft_flow_route(const struct nft_pktinfo *pkt, const struct nf_conn *ct,
+ 		   struct nf_flow_route *route, enum ip_conntrack_dir dir,
+ 		   struct nft_flowtable *ft)
+ {
++	if (ft->data.type->family == NFPROTO_BRIDGE)
++		return nft_flow_route_bridge_native(pkt, ct, route, dir, ft);
++
+ 	if (nft_flow_offload_is_bridging(pkt->skb))
+ 		return nft_flow_route_bridging(pkt, ct, route, dir, ft);
+ 
+--- a/net/netfilter/nft_flow_offload.c
++++ b/net/netfilter/nft_flow_offload.c
+@@ -17,6 +17,7 @@
+ #include <net/netfilter/nf_conntrack_core.h>
+ #include <net/netfilter/nf_conntrack_extend.h>
+ #include <net/netfilter/nf_flow_table.h>
++#include <net/netfilter/nf_conntrack_brxing.h>
+ 
+ struct nft_flow_offload {
+ 	struct nft_flowtable	*flowtable;
+@@ -84,12 +85,82 @@
+ 	spin_unlock_bh(&ct->lock);
+ }
+ 
++/* Record the ingress port of each crossing of a bridged connection, see
++ * struct nf_conn_brxing. Runs for every packet that reaches the bridge
++ * forward chain, i.e. every packet not handled by the fast path.
++ */
++static void nft_flow_offload_bridge_record(const struct nft_pktinfo *pkt,
++					   struct nf_flowtable *flowtable,
++					   struct nf_conn *ct,
++					   enum ip_conntrack_info ctinfo)
++{
++	enum ip_conntrack_dir dir = CTINFO2DIR(ctinfo);
++	u8 proto = ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.dst.protonum;
++	struct nf_conn_brxing *rec;
++	int iif, old;
++
++	if ((proto != IPPROTO_TCP && proto != IPPROTO_UDP) || !nft_in(pkt))
++		return;
++
++	iif = nft_in(pkt)->ifindex;
++	rec = nf_conn_brxing_find(ct);
++	if (!rec) {
++		/* Extensions can only be added before confirmation. A
++		 * connection first seen here after that (e.g. picked up
++		 * mid-stream) has no record and is never offloaded.
++		 */
++		if (nf_ct_is_confirmed(ct))
++			return;
++		rec = nf_ct_ext_add(ct, NF_CT_EXT_BRXING, GFP_ATOMIC);
++		if (!rec)
++			return;
++	}
++
++	old = cmpxchg(&rec->iif[dir], 0, iif);
++	if (!old || old == iif || READ_ONCE(rec->multi))
++		return;
++
++	WRITE_ONCE(rec->multi, true);
++
++	/* Offloaded before the other crossing was seen (e.g. UDP with both
++	 * ends sending at once): let the flowtable GC tear it down now, see
++	 * nf_flow_bridge_gc().
++	 */
++	if (test_bit(IPS_OFFLOAD_BIT, &ct->status))
++		mod_delayed_work(system_power_efficient_wq,
++				 &flowtable->gc_work, 0);
++}
++
++/* Offload a bridged connection only if it crossed the bridge once. For UDP,
++ * wait for a reply: by then the first packet has made all its crossings.
++ * For TCP the handshake has, as offload requires an established connection.
++ */
++static bool nft_flow_offload_bridge_ok(const struct nf_conn *ct)
++{
++	const struct nf_conn_brxing *rec = nf_conn_brxing_find(ct);
++	u8 proto = ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.dst.protonum;
++
++	if (proto != IPPROTO_TCP && proto != IPPROTO_UDP)
++		return true;
++
++	if (!rec || READ_ONCE(rec->multi))
++		return false;
++
++	if (proto == IPPROTO_UDP &&
++	    !test_bit(IPS_SEEN_REPLY_BIT, &ct->status))
++		return false;
++
++	return true;
++}
++
++
+ static void nft_flow_offload_eval(const struct nft_expr *expr,
+ 				  struct nft_regs *regs,
+ 				  const struct nft_pktinfo *pkt)
+ {
+ 	struct nft_flow_offload *priv = nft_expr_priv(expr);
+ 	struct nf_flowtable *flowtable = &priv->flowtable->data;
++	bool routing = flowtable->type->family != NFPROTO_BRIDGE;
+ 	struct tcphdr _tcph, *tcph = NULL;
+ 	struct nf_flow_route route = {};
+ 	enum ip_conntrack_info ctinfo;
+@@ -106,6 +177,9 @@
+ 	if (!ct)
+ 		goto out;
+ 
++	if (!routing)
++		nft_flow_offload_bridge_record(pkt, flowtable, ct, ctinfo);
++
+ 	switch (ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.dst.protonum) {
+ 	case IPPROTO_TCP:
+ 		thoff = nft_thoff(pkt);
+@@ -146,6 +220,13 @@
+ 		goto out;
+ 
+ 	if (!nf_ct_is_confirmed(ct))
++		goto out;
++
++	if (!routing && (!nft_flow_offload_bridge_ok(ct) ||
++			 ct->status & IPS_NAT_MASK))
++		goto out;
++
++	if (!routing && tcp_not_established)
+ 		goto out;
+ 
+ 	if (test_and_set_bit(IPS_OFFLOAD_BIT, &ct->status))
+@@ -201,6 +282,7 @@
+ 
+ 	if (ctx->family != NFPROTO_IPV4 &&
+ 	    ctx->family != NFPROTO_IPV6 &&
++	    ctx->family != NFPROTO_BRIDGE &&
+ 	    ctx->family != NFPROTO_INET)
+ 		return -EOPNOTSUPP;
+ 
