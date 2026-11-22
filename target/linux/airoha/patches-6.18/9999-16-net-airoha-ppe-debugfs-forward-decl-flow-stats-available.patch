@@ -1,0 +1,11 @@
+--- a/drivers/net/ethernet/airoha/airoha_ppe_debugfs.c
++++ b/drivers/net/ethernet/airoha/airoha_ppe_debugfs.c
+@@ -9,6 +9,8 @@
+ #include "airoha_regs.h"
+ #include "airoha_eth.h"
+ 
++static bool airoha_ppe_flow_stats_available(struct airoha_ppe *ppe);
++
+ static void airoha_debugfs_ppe_print_tuple(struct seq_file *m,
+ 					   void *src_addr, void *dest_addr,
+ 					   u16 *src_port, u16 *dest_port,
