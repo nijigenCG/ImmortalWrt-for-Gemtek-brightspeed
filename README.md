@@ -24,10 +24,9 @@
 
 ### 本基线包含的源码改动（相比上游 `475b6b67ca`）
 
-1. **修复上游内核编译缺陷（`9999-16`）**
-   - 文件：`target/linux/airoha/patches-6.18/9999-16-net-airoha-ppe-debugfs-forward-decl-flow-stats-available.patch`
-   - 问题：上游 `9999-15` 补丁在 `drivers/net/ethernet/airoha/airoha_ppe_debugfs.c:172` 提前调用 `airoha_ppe_flow_stats_available()`，但其 `static` 定义位于第 234 行，GCC 14.4 报隐式声明/类型冲突。
-   - 修复：在文件头部补充静态函数前置声明。
+1. **修复上游内核及 `mt76` 补丁构建缺陷（`9999-16` / `mt76` `126` & `9995`）**
+   - 内核：`target/linux/airoha/patches-6.18/9999-16-net-airoha-ppe-debugfs-forward-decl-flow-stats-available.patch` — 上游 `9999-15` 补丁在 `drivers/net/ethernet/airoha/airoha_ppe_debugfs.c:172` 提前调用 `airoha_ppe_flow_stats_available()`，但其 `static` 定义位于第 234 行，GCC 14.4 报隐式声明/类型冲突；在文件头部补充静态函数前置声明。
+   - 无线驱动：`package/kernel/mt76/patches/126-mt76-npu-fix-rx-ring-handling.patch` 与 `9995-wifi-mt76-mt7996-advertise-beacon-protection.patch` — 修正上游 `126` 补丁的 hunk 行数计数错误并刷新 `9995` 上下文以匹配 `mt7996/init.c`（无功能逻辑改动）。
 
 2. **纯 AP 配置与包依赖解耦（`1710-ap-only.config`）**
    - `package/emortal/default-settings/Makefile`：将 `+luci` 替换为 `+luci-base`，允许纯 AP 配置在不引入 `luci-light`/`luci-proto-ppp`/`ppp` 的前提下保留中文基础设置。
@@ -90,8 +89,9 @@ It is tailored strictly for high-throughput wired-to-6GHz L2 bridge AP operation
 
 ### Key Changes over Upstream `475b6b67ca`
 
-1. **Fix `airoha_ppe_debugfs.c` build error (`9999-16`)**:
-   - Adds missing forward declaration for `airoha_ppe_flow_stats_available()` in `drivers/net/ethernet/airoha/airoha_ppe_debugfs.c` introduced by upstream patch `9999-15`.
+1. **Fix Upstream Kernel & `mt76` Patch Build Issues (`9999-16`, `mt76` `126` & `9995`)**:
+   - Kernel: Adds missing forward declaration for `airoha_ppe_flow_stats_available()` in `drivers/net/ethernet/airoha/airoha_ppe_debugfs.c` introduced by upstream patch `9999-15`.
+   - `mt76`: Fixes malformed hunk line counts in upstream `126-mt76-npu-fix-rx-ring-handling.patch` and refreshes trailing context in `9995-wifi-mt76-mt7996-advertise-beacon-protection.patch` (no functional change).
 2. **Pure-AP Dependency Decoupling & Portable Seed (`1710-ap-only.config`)**:
    - `default-settings`: `+luci` -> `+luci-base` (keeps localization without pulling `luci-light` / `ppp`).
    - `firewall4`: drops mandatory `+kmod-nft-fullcone`.
