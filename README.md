@@ -7,41 +7,70 @@
 <a id="中文说明"></a>
 ## 中文说明
 
-### 项目定位
+### 固件简介
 
-本仓库基于 [naoki66/ImmortalWrt-for-Gemtek-brightspeed](https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed)（上游提交 `475b6b67ca` / Linux `6.18.60`），面向 **Gemtek XR1710G**（Airoha AN7581 SoC + MediaTek MT7996 三频 Wi-Fi 7 + 双 10GbE RTL8261BE）重构为**永久纯 AP（Pure-AP-Only）高吞吐无线桥接基线**：
+本仓库基于 [naoki66/ImmortalWrt-for-Gemtek-brightspeed](https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed)（上游提交 `475b6b67ca` / Linux `6.18.60`），面向 **Gemtek XR1710G**（Airoha AN7581 四核 A53 + MediaTek MT7996 三频 Wi-Fi 7 + 双 10GbE RTL8261BE）打造的**永久纯 AP（Pure-AP-Only）高吞吐二层无线桥接基线固件**：
 
-- **保留完整无线与硬件转发能力**：
-  - Airoha **NPU (`0.1111`)** + **PPE / PPE2 / L2B** 硬件加速与 `bridger` eBPF 桥接加速
-  - `mt76` / `mt7996e` 三频 Wi-Fi 7（2.4G / 5G / 6G 320 MHz EHT）与 `luci-app-mlo`
-  - `luci-base`（`luci-theme-bootstrap`）+ `uhttpd` + SSH（`dropbear`）+ `firewall4`（纯网桥最小防火墙）
-  - 硬件管理：`luci-app-airoha-fancontrol`、`luci-app-airoha-npu`、`luci-app-airoha-recovery`、`luci-app-airoha-factory`
-  - 诊断工具：`iperf3`、`ethtool-full`、`iw`、`tcpdump`、`i2c-tools`
-- **永久精简路由器/代理冗余组件**：
-  - 移除 `ppp*`、`dnsmasq*`、`odhcpd*`、`luci-theme-argon`、`ruby`、`kmod-nft-fullcone`、各类代理/穿透/DDNS/UPnP 插件等，避免与纯二层桥接 AP 角色冲突。
+- **预编译固件下载**：见本仓库 [Releases (`xr1710g-pure-ap-phaseB-20261122`)](https://github.com/nijigenCG/ImmortalWrt-for-Gemtek-brightspeed/releases/tag/xr1710g-pure-ap-phaseB-20261122)（`.itb` 仅 `21.5 MB`，`SHA256: 41c22619bb0fc9eb538699526f7fec9ab9522283d4fb60e08c26ae832a4a52fd`）。
+- **设计理念**：只做极致稳定、低 CPU 占用的有线 ↔ 无线二层高速桥接 AP，不与上级软路由/光猫拨号抢 DHCP、路由、代理资源：
+  - **完整保留硬件转发与 Wi-Fi 7 引擎**：
+    - Airoha **NPU (`0.1111`)** + **PPE / PPE2 / L2B** 硬件转发，配合 **`bridger` eBPF 桥接加速器**（含 `cls_bpf` / `cls_flower` / `act_vlan`），实现无线 ↔ 有线二层流表纯硬件卸载。
+    - `mt76` / `mt7996e` 三频 Wi-Fi 7（2.4G / 5G 160 MHz / 6G `320 MHz` EHT + `luci-app-mlo`），**6 GHz 完整支持 `30 dBm` 发射功率**（Phase B 修复了 EHT 320 MHz Sounding Dimension 位移并把最大 TX AMSDU 从 `8` 提至 `31`）。
+    - **精简纯 AP 管理与诊断**：`luci-base`（`luci-theme-bootstrap` 轻量网页管理）、`uhttpd`（HTTP `:80`）、`dropbear` SSH（`:22`）、最小化 `firewall4` 网桥防火墙、Airoha 硬件管理套件（风扇控制 `luci-app-airoha-fancontrol`、NPU `luci-app-airoha-npu`、恢复与出厂工具），内置 `iperf3`、`ethtool-full`、`iw`、`tcpdump`、`i2c-tools`。
+  - **永久精简冗余路由器组件**：
+    - 彻底移除 `ppp*`、`dnsmasq*`、`odhcpd*`、`kmod-nft-fullcone`、`luci-app-firewall`、`kmod-nf-nathelper`、`luci-theme-argon`、`ruby` 及所有 VPN / 代理 / DDNS / UPnP 插件，杜绝 DHCP 冲突与后台杂音。
 
 ---
 
-### 本基线包含的源码改动（相比上游 `475b6b67ca`）
+### 实测对比测试总结（一加 13 6 GHz `320 MHz` ↔ 10GbE `fnOS`）
 
-1. **修复上游内核及 `mt76` 补丁构建缺陷（`9999-16` / `mt76` `126` & `9995`）**
-   - 内核：`target/linux/airoha/patches-6.18/9999-16-net-airoha-ppe-debugfs-forward-decl-flow-stats-available.patch` — 上游 `9999-15` 补丁在 `drivers/net/ethernet/airoha/airoha_ppe_debugfs.c:172` 提前调用 `airoha_ppe_flow_stats_available()`，但其 `static` 定义位于第 234 行，GCC 14.4 报隐式声明/类型冲突；在文件头部补充静态函数前置声明。
-   - 无线驱动：`package/kernel/mt76/patches/126-mt76-npu-fix-rx-ring-handling.patch` 与 `9995-wifi-mt76-mt7996-advertise-beacon-protection.patch` — 修正上游 `126` 补丁的 hunk 行数计数错误并刷新 `9995` 上下文以匹配 `mt7996/init.c`（无功能逻辑改动）。
+完整测试环境、多功率矩阵（`30/24/22 dBm`）、Phase C (`9998`) A/B 对比实验及原始分析数据请见：[docs/BENCHMARK_REPORT.md](docs/BENCHMARK_REPORT.md)。
 
+| 固件版本 | 内核 | `bridger` 二层硬件卸载 | 6 GHz 发射功率 / 手机信号 | PPE 绑定数 (`ppe_bnd`) | AP CPU 占用 (`cpu0` / 峰值核) | 下行 `P1` / `P4` / `P16` (Mbps) | 上行 `P1` / `P4` / `P16` (Mbps) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **本 Pure-AP 基线 (`Phase B v2`)** | `6.18.60` | **开启** (`cls_bpf`/`cls_flower`/`act_vlan`) | **`30.00 dBm`** / `-42 dBm` | **`4 ~ 34`** | **`0.46% ~ 1.62%`** (峰值 `12.5%`) | `1793` / `2364 ~ 2453` / **`2633 ~ 2713`** | `1594` / `1808 ~ 1848` / **`1890 ~ 1914`** |
+| **YYH (`xr1710g_260831`)** | `6.18.44` | **缺失** | `30.00 dBm` | `0` | `86.7% ~ 94.0%` (`cpu0` 跑满) | `42` / `1400` / `1457` | `793` / `775` / `793` |
+| **`xmiqz` LEDE (`R26.11.6`)** | `6.18.60` | **缺失** (`cls_flower`/`act_vlan` 缺失) | 被 `US` 锁死 **`12.00 dBm`** / `-58 dBm` | `0` | `74.4% ~ 94.2%` (`cpu0`/`cpu2` 跑满) | `44` / `1066` / `924` (复测 `1145`) | `792` / `808` / `799` |
+
+**核心结论**：
+1. **纯 AP 下 `bridger` + Airoha PPE 决定性能天花板**：在二层网桥纯 AP 模式下，`YYH` 和 `xmiqz` LEDE 均因缺少 `bridger` 与 `tc` 卸载模块导致 `ppe_bnd = 0`，无线↔有线转发全部压在 AN7581 `cpu0` 软中断上（87%–94% 满载），速率直接腰斩到 `1.1–1.5 Gbps`；本基线版全程硬件直通，AP CPU 仅 **`~1%`**，峰值跑出 **2.71 Gbps 下行 / 1.91 Gbps 上行**。
+2. **6 GHz 发射功率不被误锁**：`xmiqz` LEDE 将 `US` 规则 6 GHz `320 MHz` 限制在 `12 dBm` 且手动 `iw set txpower fixed 3000` 无法解锁；本基线正常支持 `30 dBm` 满功率输出（近场极近距离也可手动调至 `22~24 dBm` 进一步降低高阶重传）。
+3. **配合服务端 `BBR + fq + 16 MB` 缓冲效果最佳**：内网有线服务端（如 NAS / 宿主机）开启 `BBR + fq` 与 `16 MB` `wmem/rmem/tcp_wmem` 后，6 GHz Wi-Fi 7 可稳定发挥全速。
+
+---
+
+### 源码改动明细（相比上游 `naoki66` `475b6b67ca`）
+
+1. **修复上游内核及 `mt76` 补丁构建缺陷（`9999-16`、`126` & `9995`）**
+   - 内核：`target/linux/airoha/patches-6.18/9999-16-net-airoha-ppe-debugfs-forward-decl-flow-stats-available.patch` — 为 `airoha_ppe_debugfs.c` 补充 `airoha_ppe_flow_stats_available()` 前置声明，解决 GCC 14.4 编译报错。
+   - 无线：`package/kernel/mt76/patches/126-mt76-npu-fix-rx-ring-handling.patch` & `9995-wifi-mt76-mt7996-advertise-beacon-protection.patch` — 修正 hunk 计数与上下文。
 2. **纯 AP 配置与包依赖解耦（`1710-ap-only.config`）**
-   - `package/emortal/default-settings/Makefile`：将 `+luci` 替换为 `+luci-base`，允许纯 AP 配置在不引入 `luci-light`/`luci-proto-ppp`/`ppp` 的前提下保留中文基础设置。
-   - `package/network/config/firewall4/Makefile`：移除硬编码 `+kmod-nft-fullcone` 依赖。
-   - 移除损坏的 `patches/feeds/argon/.../100-footer-show-model-version.patch`；新增可移植纯 AP 配置文件 `1710-ap-only.config`。
-
-3. **MT7996 Phase B 驱动调试与 EHT320 修正（`9996` & `9997`）**
-   - `package/kernel/mt76/patches/9996-wifi-mt76-mt7996-debugfs-txpower-sku-and-bf-backoff-ctrl.patch`：在 `/sys/kernel/debug/ieee80211/phy0/mt76/` 增加运行时动态开关 `sku_power_ctrl` 与 `bf_backoff_ctrl`（默认保持开启 `1`，支持免重启在线切换 SKU 限功与波束成形回退）。
-   - `package/kernel/mt76/patches/9997-wifi-mt76-mt7996-fix-eht320-sounding-dim-and-amsdu-num.patch`：修正 `mt7996_mcu_sta_bfer_eht()` 中 EHT 320 MHz Sounding Dimension 计算（`CAP3_SOUNDING_DIM_320MHZ_MASK << 2` 替代错误的 `<< 1`），并将 `amsdu->max_amsdu_num` 从 `8` 提升至 `31`。
+   - `package/emortal/default-settings/Makefile`：`+luci` → `+luci-base`，脱离完整路由 UI 仍保留中文与基础设置。
+   - `package/network/config/firewall4/Makefile`：移除硬编码 `+kmod-nft-fullcone` 依赖；停用坏损 `argon` footer 补丁，启用独立 `1710-ap-only.config` 并集成 `iperf3`。
+3. **MT7996 Phase B 驱动调试与 EHT320 / AMSDU 修复（`9996` & `9997`）**
+   - `9996-wifi-mt76-mt7996-debugfs-txpower-sku-and-bf-backoff-ctrl.patch`：在 `/sys/kernel/debug/ieee80211/phy0/mt76/` 增加运行时动态开关 `sku_power_ctrl` 与 `bf_backoff_ctrl`（默认 `1`，支持免重启调优）。
+   - `9997-wifi-mt76-mt7996-fix-eht320-sounding-dim-and-amsdu-num.patch`：修复 `mt7996_mcu_sta_bfer_eht()` 中 320 MHz EHT Sounding Dimension 位移（`<< 2` 替代错误的 `<< 1`），并将 `amsdu->max_amsdu_num` 从 `8` 提升至 `31`。
 
 ---
 
-### 编译与验证要求
+### 刷写与使用指引
 
-> **重要文件系统警告**：严禁在带私有 ACL 掩码的 NAS 目录（如会强制文件为 `0700` 的 Btrfs `trimacl` 挂载点）直接编译固件，否则生成的 `root.squashfs` 中 `/sbin/ubusd`、`/lib/libc.so` 与普通用户权限将无法执行，导致路由器无法启动。请务必在**标准 POSIX 权限文件系统**（如原生 `ext4` 或 Linux `ext4` 回环镜像）中克隆并构建。
+#### 分区兼容性与跨版本刷机
+
+本固件、`naoki66` 原版、`YYH` (`gemtek,xr1710g-ubi`) 与 `xmiqz` LEDE 均使用**完全一致的 SPI-NAND UBI 2.0 分区布局**（`ubi` 起始 `0x00700000`、大小 `0x1b700000` / 439 MiB）。
+
+- **从同系列（`gemtek,xr1710g`）升级**：直接在 LuCI 或 SSH 执行 `sysupgrade -v <itb>`。
+- **从 YYH（`gemtek,xr1710g-ubi`）或 LEDE 刷入本固件**：因 `board_name` 字符串与原分支配置结构不同，请通过 SSH 上传 `.itb` 到 `/tmp/` 后使用 `-F -n`（不保留原路由配置，防止带入冲突项）：
+  ```sh
+  sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261122-pure-ap-phaseb-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
+  ```
+- **Pure-AP 首次上线配置提示**：本固件**不含 DHCP 服务器**（默认 `br-lan` 为静态管理地址）。建议刷入时通过精简 `sysupgrade -f` 仅保留 `network` / `wireless` / `system` / `dropbear` / `shadow`，或刷后先网线直连修改 `lan` IP 与上级主路由网关（示例：`192.168.3.4/24`，网关指向主路由 `192.168.3.1`）。
+
+---
+
+### 自行编译与门禁验证
+
+> **重要文件系统警告**：严禁在带私有 ACL 掩码的 NAS 目录（如强制文件为 `0700` 的 Btrfs `trimacl` 挂载点）直接编译固件，否则 `root.squashfs` 中 `/sbin/ubusd`、`/lib/libc.so` 与非 root 守护进程会因权限缺失导致无法启动。请务必在**标准 POSIX 权限文件系统**（如原生 `ext4` 或 `ext4` 回环镜像）中克隆并构建。
 
 ```bash
 # 1. 更新并安装 feeds
@@ -54,7 +83,7 @@ FEED_PATCHES_STRICT=1 bash scripts/apply-feed-patches.sh
 cp 1710-ap-only.config .config
 make defconfig
 
-# 若构建机已安装 clang/llvm >= 15，可改用宿主 BPF 工具链以跳过漫长的 LLVM 源码编译：
+# 若构建机已安装 clang/llvm >= 15，可改用宿主 BPF 工具链加速构建：
 # scripts/config --enable BPF_TOOLCHAIN_HOST --set-str BPF_TOOLCHAIN_HOST_PATH /path/to/llvm15 --enable USE_LLVM_HOST --disable BPF_TOOLCHAIN_BUILD_LLVM --disable USE_LLVM_BUILD
 # make defconfig
 
@@ -63,9 +92,7 @@ make download -j$(nproc)
 make -j$(nproc) world
 ```
 
-**刷机前必检门禁**：
-- 使用 `unsquashfs4 -ll` 检查最终 `.itb` 内 `rootfs-1` 的系统目录（`/`、`/bin`、`/sbin`、`/lib`、`/etc`、`/usr`）与关键守护进程权限均为标准 POSIX（`0755`/`0644`，无 `0700`）。
-- 建议先使用 QEMU `aarch64` 用户态冷启冒烟测试验证 `ubusd`、`netifd`、`br-lan`、`dropbear`、`uhttpd`、`fw4` 与 `bridger` 正常拉起，再在设备旁执行真机验证并预留 U-Boot 恢复手段。
+**刷机前必检门禁**：使用 `unsquashfs4 -ll` 确认 `.itb` 内 `rootfs-1` 系统目录及二进制权限为标准 POSIX（`0755`/`0644`，无 `0700`），建议通过 QEMU `aarch64` 冷启冒烟测试及 `sysupgrade -T` 校验后再刷入真机。
 
 ---
 
@@ -81,28 +108,45 @@ make -j$(nproc) world
 
 ### Overview
 
-This repository establishes a clean **Pure-AP-Only Wi-Fi 7 baseline** for the **Gemtek XR1710G** (Airoha AN7581 SoC + MediaTek MT7996 tri-band Wi-Fi 7 + dual 10GbE RTL8261BE), derived from [naoki66/ImmortalWrt-for-Gemtek-brightspeed](https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed) (`475b6b67ca`, Linux `6.18.60`).
+This repository maintains a **Pure-AP-Only Wi-Fi 7 baseline** for the **Gemtek XR1710G** (Airoha AN7581 quad-core A53 + MediaTek MT7996 tri-band Wi-Fi 7 + dual 10GbE RTL8261BE), derived from [naoki66/ImmortalWrt-for-Gemtek-brightspeed](https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed) (`475b6b67ca`, Linux `6.18.60`).
 
-It is tailored strictly for high-throughput wired-to-6GHz L2 bridge AP operation:
-- **Kept**: Airoha NPU (`0.1111`), PPE / PPE2 / L2B hardware offload, `bridger` eBPF bridge accelerator, MT7996 tri-band EHT320 wireless (`wpad-mesh-mbedtls`, `luci-app-mlo`), minimal `firewall4`, `luci-base` (`luci-theme-bootstrap`) + `uhttpd`, `dropbear` SSH, Airoha hardware/recovery/fancontrol LuCI apps, and diagnostics (`iperf3`, `ethtool-full`, `iw`, `tcpdump`, `i2c-tools`).
-- **Removed permanently**: Router/WAN dialers and bloat (`ppp*`, `dnsmasq*`, `odhcpd*`, `kmod-nft-fullcone`, `luci-theme-argon`, `ruby`, proxy/VPN/DDNS/UPnP packages).
+Prebuilt firmware & checksums are published under [Releases (`xr1710g-pure-ap-phaseB-20261122`)](https://github.com/nijigenCG/ImmortalWrt-for-Gemtek-brightspeed/releases/tag/xr1710g-pure-ap-phaseB-20261122) (`21.5 MB`, `SHA256: 41c22619bb0fc9eb538699526f7fec9ab9522283d4fb60e08c26ae832a4a52fd`).
 
-### Key Changes over Upstream `475b6b67ca`
+- **Kept for maximum L2 AP bridge performance**:
+  - Airoha **NPU (`0.1111`)** + **PPE / PPE2 / L2B** hardware offload with **`bridger`** eBPF bridge acceleration (`cls_bpf`, `cls_flower`, `act_vlan`).
+  - Tri-band MT7996 Wi-Fi 7 (`2.4G / 5G 160 MHz / 6G 320 MHz EHT`, `wpad-mesh-mbedtls`, `luci-app-mlo`) with full `30 dBm` 6 GHz TX power, fixed EHT 320 MHz sounding dimension shift, and `max_amsdu_num=31`.
+  - Lightweight UI & hardware utilities (`luci-base` + Bootstrap, `uhttpd` HTTP `:80`, `dropbear` SSH `:22`, minimal `firewall4`, Airoha fan/NPU/recovery LuCI apps) plus `iperf3`, `ethtool-full`, `iw`, `tcpdump`, and `i2c-tools`.
+- **Permanently removed**: `ppp*`, `dnsmasq*`, `odhcpd*`, `kmod-nft-fullcone`, `luci-app-firewall`, `kmod-nf-nathelper`, `luci-theme-argon`, `ruby`, and all VPN/proxy/DDNS/UPnP router bloat.
 
-1. **Fix Upstream Kernel & `mt76` Patch Build Issues (`9999-16`, `mt76` `126` & `9995`)**:
-   - Kernel: Adds missing forward declaration for `airoha_ppe_flow_stats_available()` in `drivers/net/ethernet/airoha/airoha_ppe_debugfs.c` introduced by upstream patch `9999-15`.
-   - `mt76`: Fixes malformed hunk line counts in upstream `126-mt76-npu-fix-rx-ring-handling.patch` and refreshes trailing context in `9995-wifi-mt76-mt7996-advertise-beacon-protection.patch` (no functional change).
-2. **Pure-AP Dependency Decoupling & Portable Seed (`1710-ap-only.config`)**:
-   - `default-settings`: `+luci` -> `+luci-base` (keeps localization without pulling `luci-light` / `ppp`).
-   - `firewall4`: drops mandatory `+kmod-nft-fullcone`.
-   - Removes broken `argon` footer patch and provides portable `1710-ap-only.config`.
-3. **MT7996 Phase B Runtime Controls & EHT320/AMSDU Fixes (`9996`, `9997`)**:
-   - `9996`: Exposes runtime debugfs toggles `sku_power_ctrl` and `bf_backoff_ctrl` under `/sys/kernel/debug/ieee80211/phy0/mt76/` (defaulting to `1` on boot, switchable live without reboot).
-   - `9997`: Fixes `mt7996_mcu_sta_bfer_eht()` 320 MHz sounding dimension bit shift (`<< 2` instead of `<< 1`) and raises `amsdu->max_amsdu_num` from `8` to `31`.
+### Comparative Benchmark Summary (OnePlus 13 6 GHz `320 MHz` ↔ 10GbE `fnOS`)
+
+See the full analysis, power-stepping tests (`30/24/22 dBm`), Phase C (`9998`) A/B experiments, and server tuning notes in [docs/BENCHMARK_REPORT.md](docs/BENCHMARK_REPORT.md).
+
+| Firmware | Kernel | `bridger` L2 Offload | 6 GHz Power / RSSI | `ppe_bnd` Entries | AP CPU (`cpu0` / Peak) | DL `P1` / `P4` / `P16` (Mbps) | UL `P1` / `P4` / `P16` (Mbps) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Pure-AP Baseline (`Phase B v2`)** | `6.18.60` | **Enabled** | **`30.00 dBm`** / `-42 dBm` | **`4 ~ 34`** | **`0.46% ~ 1.62%`** (`12.5%`) | `1793` / `2364~2453` / **`2633~2713`** | `1594` / `1808~1848` / **`1890~1914`** |
+| **YYH (`xr1710g_260831`)** | `6.18.44` | Missing | `30.00 dBm` | `0` | `86.7% ~ 94.0%` | `42` / `1400` / `1457` | `793` / `775` / `793` |
+| **`xmiqz` LEDE (`R26.11.6`)** | `6.18.60` | Missing | Locked to **`12.00 dBm`** / `-58 dBm` | `0` | `74.4% ~ 94.2%` | `44` / `1066` / `924` (`1145`) | `792` / `808` / `799` |
+
+### Key Source Changes over Upstream `475b6b67ca`
+
+1. **Kernel & `mt76` Build Fixes (`9999-16`, `126`, `9995`)**: Adds missing forward declaration for `airoha_ppe_flow_stats_available()` in `airoha_ppe_debugfs.c` and fixes patch `126`/`9995` hunk formatting.
+2. **Pure-AP Dependency Decoupling (`1710-ap-only.config`)**: Switches `default-settings` to `+luci-base`, removes `kmod-nft-fullcone` from `firewall4`, disables broken `argon` footer patch, and enables `iperf3`.
+3. **MT7996 Phase B Controls & EHT320 Fixes (`9996`, `9997`)**: Adds live debugfs switches `sku_power_ctrl` / `bf_backoff_ctrl`, fixes `mt7996_mcu_sta_bfer_eht()` 320 MHz sounding dim shift (`<< 2`), and raises `max_amsdu_num` from `8` to `31`.
+
+### Flashing & Partition Compatibility
+
+`naoki66`, this Pure-AP baseline (`gemtek,xr1710g`), `YYH` (`gemtek,xr1710g-ubi`), and `xmiqz` LEDE share the identical SPI-NAND UBI 2.0 layout (`ubi` at `0x00700000`, size `0x1b700000`, 439 MiB). When switching across variants with a different `board_name`, flash cleanly with:
+
+```sh
+sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261122-pure-ap-phaseb-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
+```
+
+Note that `dnsmasq` and `odhcpd` are omitted by design; configure a static management IP on `br-lan` pointing to your upstream main router.
 
 ### Build & Pre-Flash Verification
 
-> **POSIX Filesystem Requirement**: Always build on a standard POSIX filesystem (native `ext4` or an `ext4` loopback image). Never build directly on ACL-clamped filesystems (such as NAS Btrfs mounts with `trimacl` forcing `0700` modes), or system binaries (`ubusd`, `libc.so`, etc.) inside `root.squashfs` will lose world execute/read bits and fail to boot.
+> **POSIX Filesystem Requirement**: Always build on a standard POSIX filesystem (native `ext4` or an `ext4` loopback image), never on ACL-clamped NAS mounts (`trimacl` forcing `0700`), or rootfs binaries (`ubusd`, `libc.so`, etc.) will fail on boot.
 
 ```bash
 ./scripts/feeds update -a
@@ -116,7 +160,7 @@ make download -j$(nproc)
 make -j$(nproc) world
 ```
 
-Before flashing `.itb` images, verify `rootfs-1` permissions (`0755`/`0644`, no `0700` system directories) via `unsquashfs4 -ll`, boot-test userspace in QEMU `aarch64`, and validate `/sbin/sysupgrade -T`.
+Verify `rootfs-1` permissions (`0755`/`0644`, zero `0700` dirs) via `unsquashfs4 -ll`, boot-test userspace in QEMU `aarch64`, and validate `/sbin/sysupgrade -T` before flashing.
 
 ### Credits
 
