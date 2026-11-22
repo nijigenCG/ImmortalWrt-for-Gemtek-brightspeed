@@ -1,0 +1,120 @@
+From: Phase B <phaseb@local>
+Subject: [PATCH] wifi: mt76: add debugfs transmit power controls
+
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -591,6 +591,9 @@
+ 	} var;
+ 
+ 	bool vow_atf_en;
++	bool sku_power_disabled;
++	bool bf_backoff_disabled;
++	bool bf_backoff_configured;
+ };
+ 
+ enum {
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -35,9 +35,17 @@
+ 		goto disable_radio;
+ 
+ 	ret = mt7996_mcu_set_tx_power_ctrl(phy, UNI_TXPOWER_SKU_POWER_LIMIT_CTRL,
+-					   true);
++					   !dev->sku_power_disabled);
+ 	if (ret)
+ 		goto disable_radio;
++
++	if (dev->bf_backoff_configured) {
++		ret = mt7996_mcu_set_tx_power_ctrl(phy,
++				UNI_TXPOWER_BACKOFF_POWER_LIMIT_CTRL,
++				!dev->bf_backoff_disabled);
++		if (ret)
++			goto disable_radio;
++	}
+ 
+ 	set_bit(MT76_STATE_RUNNING, &phy->mt76->state);
+ 
+--- a/mt7996/debugfs.c
++++ b/mt7996/debugfs.c
+@@ -990,6 +990,72 @@
+ DEFINE_DEBUGFS_ATTRIBUTE(fops_vow_atf, mt7996_vow_atf_get, mt7996_vow_atf_set,
+ 			 "%lld\n");
+ 
++static int mt7996_power_ctrl_set(struct mt7996_dev *dev, u8 id, u64 val)
++{
++	struct mt7996_phy *phy;
++	int band, ret = 0;
++
++	if (val > 1)
++		return -EINVAL;
++
++	mutex_lock(&dev->mt76.mutex);
++	for (band = MT_BAND0; band <= MT_BAND2; band++) {
++		if (!mt7996_band_valid(dev, band))
++			continue;
++		phy = __mt7996_phy(dev, band);
++		if (!phy || !phy->mt76)
++			continue;
++		ret = mt7996_mcu_set_tx_power_ctrl(phy, id, !!val);
++		if (ret)
++			goto out;
++	}
++	if (id == UNI_TXPOWER_SKU_POWER_LIMIT_CTRL)
++		dev->sku_power_disabled = !val;
++	else {
++		dev->bf_backoff_disabled = !val;
++		dev->bf_backoff_configured = true;
++	}
++out:
++	mutex_unlock(&dev->mt76.mutex);
++	return ret;
++}
++
++static int mt7996_sku_power_set(void *data, u64 val)
++{
++	return mt7996_power_ctrl_set(data, UNI_TXPOWER_SKU_POWER_LIMIT_CTRL, val);
++}
++
++static int mt7996_sku_power_get(void *data, u64 *val)
++{
++	struct mt7996_dev *dev = data;
++
++	mutex_lock(&dev->mt76.mutex);
++	*val = !dev->sku_power_disabled;
++	mutex_unlock(&dev->mt76.mutex);
++	return 0;
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_sku_power, mt7996_sku_power_get,
++			 mt7996_sku_power_set, "%llu\n");
++
++static int mt7996_bf_backoff_set(void *data, u64 val)
++{
++	return mt7996_power_ctrl_set(data, UNI_TXPOWER_BACKOFF_POWER_LIMIT_CTRL, val);
++}
++
++static int mt7996_bf_backoff_get(void *data, u64 *val)
++{
++	struct mt7996_dev *dev = data;
++
++	mutex_lock(&dev->mt76.mutex);
++	*val = !dev->bf_backoff_disabled;
++	mutex_unlock(&dev->mt76.mutex);
++	return 0;
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_bf_backoff, mt7996_bf_backoff_get,
++			 mt7996_bf_backoff_set, "%llu\n");
++
+ int mt7996_init_debugfs(struct mt7996_dev *dev)
+ {
+ 	struct dentry *dir;
+@@ -1015,6 +1081,8 @@
+ 				    mt7996_twt_stats);
+ 	debugfs_create_file("rf_regval", 0600, dir, dev, &fops_rf_regval);
+ 	debugfs_create_file("vow_atf", 0600, dir, dev, &fops_vow_atf);
++	debugfs_create_file("sku_power_ctrl", 0600, dir, dev, &fops_sku_power);
++	debugfs_create_file("bf_backoff_ctrl", 0600, dir, dev, &fops_bf_backoff);
+ 
+ 	debugfs_create_u32("dfs_hw_pattern", 0400, dir, &dev->hw_pattern);
+ 	debugfs_create_file("radar_trigger", 0200, dir, dev,
