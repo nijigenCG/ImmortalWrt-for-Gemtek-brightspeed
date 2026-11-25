@@ -1,4 +1,4 @@
-# Gemtek XR1710G 固件实测与横向对比报告（2026-11-22）
+# Gemtek XR1710G 固件实测与横向对比报告（2026-11-24 Phase G 更新）
 
 [中文报告](#中文报告) | [English Summary](#english-summary)
 
@@ -16,26 +16,27 @@
   # /etc/modules-load.d/99-wifi7-bbr.conf: tcp_bbr, sch_fq
   # /etc/sysctl.d/99-zz-wifi7-bbr.conf
   net.core.default_qdisc = fq
-  net.ipv4.tcp_congestion_control = bbr
+  net.core.tcp_congestion_control = bbr
   net.core.wmem_max = 16777216
   net.core.rmem_max = 16777216
-  net.ipv4.tcp_wmem = 4096 131072 16777216
+  net.core.tcp_wmem = 4096 131072 16777216
   ```
-- **测速工具与指标**：手机端 `iperf3` 对 `192.168.3.2:5298` 运行 10 秒 TCP 测试（`P1` 单流 / `P4` 四流 / `P16` 十六流），同步采集 AP 端 `iw station dump`、`mt76/tx_stats`、`/proc/stat` 单核利用率及 `/sys/kernel/debug/ppe` 硬件绑定流表数量（`ppe_bnd`）。
+- **测速工具与指标**：手机端 `iperf3` 对 `192.168.3.2:5298` 运行 10 秒 TCP 测试（`P1` 单流 / `P4` 四流 / `P8` 八流 / `P16` 十六流），同步采集 AP 端 `iw station dump`、`mt76/tx_stats`、`/proc/stat` 单核利用率及 `/sys/kernel/debug/ppe` 硬件绑定流表数量（`ppe_bnd`）。
 
 ---
 
 ### 2. 社区固件横向对比结果（一加 13 实测）
 
-| 固件版本 | 内核 | `bridger` 二层卸载 | 6 GHz 功率 / 信号 | `ppe_bnd` 硬件流 | AP CPU 最忙核 / `cpu0` | 下行 `P1` / `P4` / `P16` (Mbps) | 上行 `P1` / `P4` / `P16` (Mbps) |
+| 固件版本 | 内核 | `bridger` 二层卸载 | 6 GHz 功率 / 关键调优 | `ppe_bnd` 硬件流 | AP CPU 最忙核 / `cpu0` | 下行 `P1` / `P4` / `P16` (Mbps) | 上行 `P1` / `P4` / `P16` (Mbps) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Pure-AP Baseline (`Phase B v2`)**<br>`20261122-pure-ap-phaseB` | `6.18.60` | **开启**<br>(`cls_bpf`/`cls_flower`/`act_vlan`) | `30.00 dBm` / `-42 dBm` | **`4 ~ 34`** | **`0.46% ~ 1.62%`**<br>(最忙核 `12.5%`) | `1793.15` / `2364.49~2452.98` / **`2632.88~2713.32`** | `1594.17` / `1808.16~1847.91` / **`1890.13~1913.75`** |
+| **Pure-AP (`Phase G`)**<br>`20261123-pure-ap-phaseG` | `6.18.60` | **开启**<br>(`cls_bpf`/`cls_flower`/`act_vlan`) | `30.00 dBm`<br>`npu_tx_band_map=2` + `radio2 eBF=0` | **`4 ~ 34`** | **`~1%`**<br>(全硬件卸载) | `1889.51` / **`2780.21 ~ 3049.98`** / **`2819.35 ~ 3049.98`** | — / **`2245.39`** (`MCS 10 = 61.6%`) / — |
+| **Pure-AP Baseline (`Phase B v2`)**<br>`20261122-pure-ap-phaseB` | `6.18.60` | **开启** | `30.00 dBm` / `-42 dBm` | `4 ~ 34` | `0.46% ~ 1.62%`<br>(最忙核 `12.5%`) | `1793.15` / `2364.49~2452.98` / `2632.88~2713.32` | `1594.17` / `1808.16~1847.91` / `1890.13~1913.75` |
 | **YYH (`xr1710g_260831`)**<br>OpenWrt `r2363-e88fbe28ea` | `6.18.44` | **缺失**<br>(无 `bridger` 及 `tc` 卸载模块) | `30.00 dBm` | `0` | **`86.7% ~ 94.0%`**<br>(`cpu0` 软中断打满) | `41.73` / `1399.61` / `1456.67` | `792.94` / `775.13` / `793.40` |
 | **`xmiqz` LEDE (`R26.11.6`)**<br>`xr1710g-lede-default-2026-11-r24` | `6.18.60` | **缺失**<br>(无 `bridger` / `cls_flower` / `act_vlan`) | 被 `US` 规则锁死 **`12.00 dBm`** / `-58 dBm` | `0` | **`74.4% ~ 94.2%`**<br>(`cpu0` / `cpu2` 打满) | `43.72` / `1066.38` / `924.22`<br>(二次复测 `1144.49` / `1145.03`) | `792.35` / `808.47` / `798.63` |
 
 #### 性能差距根因解析
 
-1. **为什么 Pure-AP 基线版能跑满 `2.36 ~ 2.71 Gbps` 且 AP CPU 仅 `~1%`？**
+1. **为什么 Pure-AP 基线版能跑满 `2.71 ~ 3.05 Gbps` 且 AP CPU 仅 `~1%`？**
    - 当 XR1710G 作为**二层纯 AP（`br-lan` 网桥）**使用时，流量不经过三层 NAT 路由表，普通 `nftables flow_offloading` 无法接管二层网桥帧。
    - 本固件完整保留并拉起 **`bridger` eBPF 桥接加速器** + 内核 `cls_bpf` / `cls_flower` / `act_vlan` 模块，把无线 ↔ 有线网桥流直接下发到 Airoha **PPE 硬件转发引擎**（`ppe_bnd = 4 ~ 34`），`cpu0` 占用率维持在 **`0.46% ~ 1.62%`**。
 2. **为什么 YYH (`260831`) 只有 `1.40 ~ 1.50 Gbps`？**
@@ -46,7 +47,30 @@
 
 ---
 
-### 3. 发射功率梯度测试（Pure-AP Phase B v2）
+### 3. Phase G（`9998` + `9999`）专项优化与 A/B 实测（`3,049.98 Mbps` DL / `2,245.39 Mbps` UL）
+
+#### 3.1 `9998`：运行时 `npu_tx_band_map` 将 5G/6G 全切至 PCIe0 Gen3 x2 (`15.752 Gb/s`)
+- 默认状态下 MT7996 把 6 GHz 放在 PCIe2（Gen2 x1，理论上限 `4.000 Gb/s`），而 PCIe0（Gen3 x2，`15.752 Gb/s`）富余极大。
+- 补丁 `9998-wifi-mt76-mt7996-npu-6g-pcie0-wdma0.patch` 提供 `0644` 运行时模块参数：
+  - `npu_tx_band_map=0`：原厂默认（保留开机安全回退）
+  - `npu_tx_band_map=1`：6G → PCIe0 (WDMA0)，2.4G + 5G → PCIe2 (WDMA1)
+  - **`npu_tx_band_map=2`（推荐持久化）**：**5G + 6G 上下行全走 PCIe0 Gen3 x2 (`15.752 Gb/s`)**，仅 2.4G 走 PCIe2 Gen2 x1 (`4.000 Gb/s`)，经 `devmem` 实测 `P0_TX18` 环实时搬运、`P2_TX21` 静默。
+
+#### 3.2 `9999` + 6 GHz `eBF` 锁死 `MCS 7` 根因定位与方案 A 验证
+- 补丁 `9999-wifi-mt76-mt7996-fix-eht320-bf-he-bw320-and-rc-sync.patch` 完整修复了 `mt7996_mcu_sta_bfer_eht()` 的 BW320→BW160 `fallthrough` 维度写入、`ncol <= nrow` 钳位与 `ng16`/`codebook` 解析，并修复了 `mt7996_mcu_sta_he_tlv()` 遗漏 `BW320` 与 `add_rate_ctrl` 未同步 `STA_REC_BF` 的缺陷，实机 `dmesg` 确认下发 `gt80=0x33/0x11`。
+- 但在一加 13（`PHY-CAP[3]=0x00`: `trig=0/0, ng16=0/0, cb=0/0`）近距实测中发现 **MT7996 固件 6 GHz eBF 异常**：只要 `EHT` 反馈首次出现（`All: 1, EHT: 1`）并激活 `eBF`，反馈计数便卡死在 `1` 不再刷新，硬件却持续对后续所有 PPDU 套用陈旧波束矩阵，把 6 GHz 下行从 **`MCS 9/10` (`2.82–3.05 Gbps`)** 压死在 **`MCS 7 (96.6–98.5%) / 2.26–2.33 Gbps`**。
+
+| 测试阶段（Phase G，一加 13 6 GHz 320 MHz） | 配置要点 | `eBF / EHT` 状态 | 下行实测 (Mbps) | 上行 `ul_p4` (Mbps) | 主导 MCS 分布 |
+| :--- | :--- | :--- | ---: | ---: | :--- |
+| **R1 默认** (`-33 dBm`) | `map=0, sku=1, bfbo=1, 30 dBm` | 末尾首次触发 `EHT: 1` | **`2819.35`** (`P16`) | `1699.78` | `MCS 9` (52.9–59.7%) |
+| **R2–R4（eBF 触发后）** | `eht_su_beamformer=1` | `eBF` 激增至 `19,908`，`EHT` 卡死 `1` | `2166 ~ 2331`（锁死） | `2095.28` | **`MCS 7` (82.7–98.5%)** |
+| **方案 A（关 6G eBF，近距）** | `radio2 eht_su_beamformer=0`，`map=2`，`30 dBm` | **`eBF = 0, EHT = 0`** | **`3049.98`** (`P4`/`P8`) | **`2245.39`** | **DL: `MCS 10` 58.6% + `MCS 9` 26.6% + `MCS 11` 3.8%**<br>**UL: `MCS 10` 61.6% + `MCS 11` 3.9%** |
+
+> **关键配置提示**：在 OpenWrt `mac80211` 架构下，`eht_su_beamformer=0` / `he_su_beamformer=0` **必须写在设备节 `wireless.radio2`**（仅写在接口节 `default_radio2` 不会传入 `hostapd-phy0.2.conf`）。
+
+---
+
+### 4. 发射功率梯度测试（Pure-AP Phase B v2）
 
 在 OnePlus 13 近场工况下（`fnOS` 已开启 `BBR + fq + 16 MB`），对比 AP 6 GHz 不同 `txpower` 设置：
 
@@ -55,23 +79,6 @@
 | **`30 dBm`（默认 / 穿墙）** | `1793.15` | `2452.98` (回滚复测 `2364.49`) | **`2632.88`** (回滚复测 **`2713.32`**) | **`1808.16`** (回滚复测 **`1847.91`**) | `MCS8/9`，`tx_retry = 1.19%~6.20%` |
 | **`24 dBm`（近场平衡）** | `1830.88` | **`2569.73`** | `2588.40` | `1754.92` | `MCS8/9`，`dl_p4 retry` 降至 `2.67%` |
 | **`22 dBm`（极近场低失真）** | **`1913.97`** | `2520.61` | `2630.45` | — | 单流 `dl_p1` 表现最佳，`MCS8/9` |
-
-> 说明：穿墙及通用家用建议保持默认 `30 dBm`；若 AP 与终端仅隔 1–2 米且追求单流/4 流极致稳态，可将 6 GHz 功率微调至 `22~24 dBm` 降低功放互调失真。
-
----
-
-### 4. Phase C 实验补丁 (`9998`) A/B 验证结论（为何不合入基线）
-
-我们在开发分支测试过 `Phase C`（补丁 `9998-wifi-mt76-mt7996-eht320-bfer-and-runtime-tuning.patch`，引入 `eht320_mmps_disable`、`tx_amsdu_max_num`、`muru_ofdma_ul_en` 调试开关）：
-
-| 实验分组 | 下行 `P1` (Mbps) | 下行 `P4` (Mbps) | 下行 `P16` (Mbps) | 上行 `P4` (Mbps) | `eBF / fb_eht` | 关键现象与判定 |
-| :--- | ---: | ---: | ---: | ---: | :---: | :--- |
-| **`C0` (`Phase C` 默认)** | `1931.89` (`24dBm: 2074.90`) | `1946.05` (`24dBm: 2220.11`) | `2209.04` (`24dBm: 2267.49`) | `912.74` | `0 / 0` | 受限在 `MCS7`，整体慢于 `Phase B v2`（`2.45–2.71 Gbps`, `MCS8/9`） |
-| **`C1` (`eht320_mmps_disable=1`)** | `1089.35` | `1216.74` | `1226.81` | `1049.89` | **`2434 / 27`** | 证实 OnePlus 13 通告 `HE-DYNAMIC-SM-PS` 是 `eBF=0` 诱因；强行忽略后虽开启显式波束成形，但探测开销导致 `MCS5` 暴涨至 `22~31%`，速度腰斩（**负优化**） |
-| **`C2` (`tx_amsdu_max_num=4`)** | `1641.59` | `2213.61` (`24dBm: 2300.01`) | `2300.33` | — | `0 / 0` | 将重传压至 `0.70%~0.72%`，但在 `24 dBm` 下与 `ofdma_ul=1` 叠加触发 **`C4` 降速（`886~1184 Mbps`）** |
-| **`C3` (`muru_ofdma_ul_en=1`)** | — | `2277.88` | — | `1827.55` (`ul_p16: 1893.26`) | `0 / 0` | 上行恢复，下行仍锁定在 `MCS7` |
-
-**最终决策**：保留干净、高速、低重传的 **`Phase B v2`（`20261122-pure-ap-phaseB`）** 作为 GitHub 正式基线，不合并引起 `MCS7` 降档与 `C1`/`C4` 回退的 `9998` 实验补丁。
 
 ---
 
@@ -87,11 +94,10 @@
 | `reserved_bmt` | `0x1be00000` | `0x04200000` (66 MiB) | 坏块管理保留区 |
 
 - **同分支（`gemtek,xr1710g`）升级**：直接使用 LuCI 页面或 `sysupgrade -v <itb>`。
-- **从其它分支（如 `gemtek,xr1710g-ubi` / LEDE）切换回本固件**：因 `board_name` 字符串与 `compat_version` 差异，`sysupgrade` 需加 `-F`（不建议保留原路由器分支的防火墙/DHCP 全量配置，建议仅保留 `network` / `wireless` / `system` / `dropbear` / `shadow` 或使用干净配置升级 `-n`）：
+- **从其它分支（如 `gemtek,xr1710g-ubi` / LEDE）切换回本固件**：因 `board_name` 字符串与 `compat_version` 差异，`sysupgrade` 需加 `-F -n`：
   ```sh
-  sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261122-pure-ap-phaseb-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
+  sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261123-pure-ap-phaseg-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
   ```
-- **Pure-AP 默认网络说明**：本固件完全移除 `dnsmasq` 与 `odhcpd`，不会在局域网内下发 DHCP；刷写并恢复纯 AP 配置时请确保 `br-lan` 设有静态管理 IP（例如 `192.168.3.4/24`）及正确的上级网关。
 
 ---
 
@@ -106,15 +112,15 @@
 
 ### Head-to-Head Firmware Comparison
 
-| Firmware | Kernel | `bridger` L2 Offload | 6 GHz TX Power / RSSI | `ppe_bnd` Entries | AP CPU (`cpu0` / Peak Core) | DL `P1` / `P4` / `P16` (Mbps) | UL `P1` / `P4` / `P16` (Mbps) |
+| Firmware | Kernel | `bridger` L2 Offload | 6 GHz TX Power / Tuning | `ppe_bnd` Entries | AP CPU (`cpu0` / Peak) | DL `P1` / `P4` / `P16` (Mbps) | UL `P1` / `P4` / `P16` (Mbps) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Pure-AP Baseline (`Phase B v2`)** | `6.18.60` | **Enabled** (`cls_bpf`/`cls_flower`/`act_vlan`) | `30 dBm` / `-42 dBm` | **`4 ~ 34`** | **`0.46% ~ 1.62%`** (max `12.5%`) | `1793` / `2364~2453` / **`2633~2713`** | `1594` / `1808~1848` / **`1890~1914`** |
+| **Pure-AP (`Phase G`)** | `6.18.60` | **Enabled** (`cls_bpf`/`cls_flower`/`act_vlan`) | `30 dBm` / `npu_tx_band_map=2`, `radio2 eBF=0` | **`4 ~ 34`** | **`~1%`** | `1890` / **`2780~3050`** / **`2819~3050`** | — / **`2245`** (`MCS 10`) / — |
+| **Pure-AP (`Phase B v2`)** | `6.18.60` | **Enabled** | `30 dBm` / `-42 dBm` | `4 ~ 34` | `0.46% ~ 1.62%` (max `12.5%`) | `1793` / `2364~2453` / `2633~2713` | `1594` / `1808~1848` / `1890~1914` |
 | **YYH (`xr1710g_260831`)** | `6.18.44` | Missing | `30 dBm` | `0` | **`86.7% ~ 94.0%`** | `42` / `1400` / `1457` | `793` / `775` / `793` |
-| **`xmiqz` LEDE (`R26.11.6`)** | `6.18.60` | Missing (`cls_flower`/`act_vlan` absent) | Clamped to **`12 dBm`** (`US`) / `-58 dBm` | `0` | **`74.4% ~ 94.2%`** | `44` / `1066` / `924` (`1145` 2nd run) | `792` / `808` / `799` |
+| **`xmiqz` LEDE (`R26.11.6`)** | `6.18.60` | Missing (`cls_flower`/`act_vlan` absent) | Clamped to **`12 dBm`** (`US`) / `-58 dBm` | `0` | **`74.4% ~ 94.2%`** | `44` / `1066` / `924` (`1145`) | `792` / `808` / `799` |
 
 ### Key Takeaways
 
-1. **`bridger` + Airoha PPE is mandatory for Pure-AP Wi-Fi 7 throughput**: Without `bridger` and its `tc` modules (`cls_bpf`, `cls_flower`, `act_vlan`), L2 wireless-to-LAN bridge frames miss hardware flow offload (`ppe_bnd = 0`), saturating AN7581 `cpu0` at 87–94% and capping speeds at ~1.1–1.5 Gbps DL / ~0.8 Gbps UL.
-2. **Pure-AP `Phase B v2` hits up to `2.71 Gbps` DL / `1.91 Gbps` UL** with only `~1%` AP CPU usage, and passes 5-gate build verification (FIT integrity, strict POSIX permissions on `ext4`, driver checks, QEMU cold-boot smoke test, and `sysupgrade -T`).
-3. **Experimental `Phase C` (`9998`) was intentionally dropped**: Disabling `HE-DYNAMIC-SM-PS` tracking (`eht320_mmps_disable=1`) activates `eBF` (`1979–2434`), but incurs sounding/rate-drop overhead (`MCS5` 22–31%), halving throughput to `1089–1227 Mbps`.
-4. **Identical SPI-NAND UBI 2.0 layout** (`ubi` at `0x00700000`, size `0x1b700000`, 439 MiB) across `naoki66`, this Pure-AP baseline, `YYH`, and `xmiqz` LEDE; cross-branch flashing uses `sysupgrade -F -v -n`.
+1. **Phase G reaches `3,049.98 Mbps` DL (`MCS 10 = 58.6%`) / `2,245.39 Mbps` UL (`MCS 10 = 61.6%`)** with `~1%` AP CPU usage by combining `bridger` + Airoha PPE hardware offload, runtime `npu_tx_band_map=2` (moving both 5G and 6G onto PCIe0 Gen3 x2 `15.752 Gb/s`), and disabling 6 GHz `radio2` eBF (`eht_su_beamformer=0` / `he_su_beamformer=0`) to avoid MT7996 firmware stalling at `EHT: 1` / `MCS 7 (98.5%)` with OnePlus 13.
+2. **`bridger` + Airoha PPE is mandatory for Pure-AP Wi-Fi 7 throughput**: Without `bridger` and its `tc` modules (`cls_bpf`, `cls_flower`, `act_vlan`), L2 bridge traffic saturates AN7581 `cpu0` at 87–94% and caps speeds at ~1.1–1.5 Gbps DL / ~0.8 Gbps UL.
+3. **Identical SPI-NAND UBI 2.0 layout** (`ubi` at `0x00700000`, size `0x1b700000`, 439 MiB) across `naoki66`, this Pure-AP baseline, `YYH`, and `xmiqz` LEDE; cross-branch flashing uses `sysupgrade -F -v -n`.
