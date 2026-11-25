@@ -1,0 +1,77 @@
+From e3cc87292ff97a0352be3748fe9624f790812c51 Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Tue, 24 Nov 2026 09:43:02 +0100
+Subject: [PATCH] wifi: mt76: mt7996: clear the PS state of stations at a reset
+
+MT_WCID_FLAG_PS survives both recoveries: the full reset replay reuses
+&msta->deflink in mt7996_mac_sta_init_link() with its flags, and the L1
+branch of mt7996_mac_reset_work() writes no wcid flag. The firmware
+holds no station in power save after a firmware load. An L1 recovery
+clears the PS state of every record, but reports that for the link
+records of an MLD alone. Any other station that is awake gets no PS
+leave, and mt76 sends it one frame per pass until its next doze and
+wake.
+
+Clear the flag when the driver sets up a station link. At the end of an
+L1 recovery, clear it for every station before RX takes the first
+firmware event. The flag then matches the firmware, which holds no
+station in power save after either reset. The next PS enter event of a
+station sets the flag again.
+
+Fixes: 2d16caccd278 ("wifi: mt76: mt7996: handle UNI PS sync events")
+Link: https://patch.msgid.link/20261124084309.1981968-13-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/mac.c  | 19 +++++++++++++++++++
+ mt7996/main.c |  1 +
+ 2 files changed, 20 insertions(+)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 35f91cf1c..4d83dd876 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2525,6 +2525,24 @@ mt7996_mac_reset_sta_iter(void *data, struct ieee80211_sta *sta)
+ 		mt7996_mac_sta_remove_link(dev, sta, i, true);
+ }
+ 
++static void
++mt7996_mac_reset_sta_ps(struct mt7996_dev *dev)
++{
++	int i;
++
++	rcu_read_lock();
++	for (i = 0; i < ARRAY_SIZE(dev->mt76.wcid); i++) {
++		struct mt76_wcid *wcid = mt76_wcid_ptr(dev, i);
++
++		if (!wcid_to_sta(wcid) ||
++		    !test_bit(MT_WCID_FLAG_PS, &wcid->flags))
++			continue;
++
++		mt76_sta_ps_transition(&dev->mt76, wcid, false);
++	}
++	rcu_read_unlock();
++}
++
+ static void
+ mt7996_mac_reset_vif_iter(void *data, u8 *mac, struct ieee80211_vif *vif)
+ {
+@@ -2737,6 +2755,7 @@ void mt7996_mac_reset_work(struct work_struct *work)
+ 
+ 	mt76_wr(dev, MT_MCU_INT_EVENT, MT_MCU_INT_EVENT_RESET_DONE);
+ 	mt7996_wait_reset_state(dev, MT_MCU_CMD_NORMAL_STATE);
++	mt7996_mac_reset_sta_ps(dev);
+ 
+ 	/* enable DMA Rx/Tx and interrupt */
+ 	mt7996_dma_start(dev, false, false);
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 34ec49905..ec406445f 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -1390,6 +1390,7 @@ mt7996_mac_sta_init_link(struct mt7996_dev *dev,
+ 	msta_link->wcid.link_id = link_id;
+ 	msta_link->wcid.link_valid = !!sta->valid_links;
+ 	msta_link->wcid.def_wcid = &msta->deflink.wcid;
++	clear_bit(MT_WCID_FLAG_PS, &msta_link->wcid.flags);
+ 
+ 	if (link_sta->sta->tdls)
+ 		set_bit(MT_WCID_FLAG_TDLS_PEER, &msta_link->wcid.flags);

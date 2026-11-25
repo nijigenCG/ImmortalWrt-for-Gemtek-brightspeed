@@ -1,0 +1,46 @@
+From 2b4a2a162a1b6ed3cf1e38af57dbdeaeec3a8630 Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Thu, 19 Nov 2026 13:43:41 +0100
+Subject: [PATCH] wifi: mt76: mt7996: take the TWT flows of a removed station
+ off twt_list
+
+mt7996_mac_twt_teardown_flow() keeps a flow on dev->twt_list if the
+delete command fails, for example while a reset is pending, and
+mt7996_mac_sta_remove() does not take the remaining flows off the list.
+The list then holds flows inside a station that mac80211 frees, and the
+next TWT setup reads them in mt7996_mac_twt_sched_list_add().
+
+Take the remaining flows of a station off the list at its removal.
+
+Fixes: 98686cd21624 ("wifi: mt76: mt7996: add driver for MediaTek Wi-Fi 7 (802.11be) devices")
+Link: https://patch.msgid.link/20261119124352.1842164-9-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/main.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/mt7996/main.c b/mt7996/main.c
+index cb7dee06c..2fce7eb09 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -2010,9 +2010,20 @@ mt7996_mac_sta_remove(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 		      struct ieee80211_sta *sta)
+ {
+ 	struct mt7996_sta *msta = (struct mt7996_sta *)sta->drv_priv;
++	struct mt7996_sta_link *msta_link = &msta->deflink;
+ 	int i;
+ 
+ 	mutex_lock(&dev->mt76.mutex);
++
++	/* the firmware can still hold an agreement whose delete failed, so
++	 * its table entry stays counted
++	 */
++	for (i = 0; i < ARRAY_SIZE(msta_link->twt.flow); i++) {
++		if (msta_link->twt.flowid_mask & BIT(i))
++			list_del_init(&msta_link->twt.flow[i].list);
++	}
++	msta_link->twt.flowid_mask = 0;
++
+ 	for (i = 0; i < ARRAY_SIZE(msta->link); i++)
+ 		mt7996_mac_sta_remove_link(dev, sta, i, true);
+ 	mutex_unlock(&dev->mt76.mutex);

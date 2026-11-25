@@ -1,34 +1,70 @@
 Subject: [PATCH] mt76: npu: fix RX ring refill ownership and multi-slot completion ordering
-Origin: https://github.com/openwrt/mt76/pull/1169
-Upstream-Status: Submitted [PR head 50ecba6b7714358869525a2f80047237c13a2691]
+Origin: https://github.com/openwrt/mt76/pull/1169 (hardened v2 for XR1710G Phase I)
 
-diff --git a/npu.c b/npu.c
+Keep refill-gated dma_idx update (with explicit dma_wmb() and skip when
+nframes == 0) so NPU cannot overwrite in-flight RX buffers, and harden
+mt76_npu_dequeue() with READ_ONCE(), corrupt nframes >= q->ndesc guard,
+nframes > MAX_SKB_FRAGS + 1 page_pool return, and full-packet recycle on
+napi_build_skb() OOM.
+
 --- a/npu.c
 +++ b/npu.c
-@@ -40,6 +40,11 @@ int mt76_npu_fill_rx_queue(struct mt76_dev *dev, struct mt76_queue *q)
+@@ -40,6 +40,14 @@
  		nframes++;
  	}
  
-+	/* Hand the slots back to the NPU only once they have a new buffer,
-+	 * up to the one kept free in front of the tail.
-+	 */
-+	Q_WRITE(q, dma_idx, (q->head + 1) % q->ndesc);
++	if (nframes) {
++		/* Hand the slots back to the NPU only once they have a new buffer,
++		 * up to the one kept free in front of the tail.
++		 */
++		dma_wmb();
++		Q_WRITE(q, dma_idx, (q->head + 1) % q->ndesc);
++	}
 +
  	return nframes;
  }
  
-@@ -67,19 +72,32 @@ static struct sk_buff *mt76_npu_dequeue(struct mt76_dev *dev,
+@@ -66,28 +74,92 @@
+ 	struct airoha_npu_rx_dma_desc *desc = (void *)q->desc;
  	int i, nframes, index = q->tail;
  	struct sk_buff *skb = NULL;
- 
-+	if (!q->queued ||
-+	    !FIELD_GET(NPU_RX_DMA_DESC_DONE_MASK, desc[index].ctrl))
+-
+-	nframes = FIELD_GET(NPU_RX_DMA_PKT_COUNT_MASK, desc[index].info);
++	u32 ctrl, desc_info;
++
++	if (!q->queued)
++		return NULL;
++
++	ctrl = READ_ONCE(desc[index].ctrl);
++	if (!FIELD_GET(NPU_RX_DMA_DESC_DONE_MASK, ctrl))
 +		return NULL;
 +
 +	/* The slot count is only valid once the first slot is complete */
 +	dma_rmb();
- 	nframes = FIELD_GET(NPU_RX_DMA_PKT_COUNT_MASK, desc[index].info);
++	desc_info = READ_ONCE(desc[index].info);
++	nframes = FIELD_GET(NPU_RX_DMA_PKT_COUNT_MASK, desc_info);
  	nframes = max_t(int, nframes, 1);
+-
+-	for (i = 0; i < nframes; i++) {
++	if (unlikely(nframes >= q->ndesc)) {
+ 		struct mt76_queue_entry *e = &q->entry[index];
+-		int len = FIELD_GET(NPU_RX_DMA_DESC_CUR_LEN_MASK,
+-				    desc[index].ctrl);
+-
+-		if (!FIELD_GET(NPU_RX_DMA_DESC_DONE_MASK, desc[index].ctrl)) {
+-			dev_kfree_skb(skb);
+-			return NULL;
+-		}
+ 
+ 		dma_sync_single_for_cpu(dev->dma_dev, e->dma_addr[0],
+ 					e->dma_len[0],
+ 					page_pool_get_dma_dir(q->page_pool));
++		mt76_put_page_pool_buf(e->buf, false);
++		e->buf = NULL;
++		q->tail = (index + 1) % q->ndesc;
++		q->queued--;
++		return NULL;
++	}
 +	if (nframes > q->queued)
 +		return NULL;
 +
@@ -36,26 +72,74 @@ diff --git a/npu.c b/npu.c
 +	for (i = 1; i < nframes; i++) {
 +		int idx = (index + i) % q->ndesc;
 +
-+		if (!FIELD_GET(NPU_RX_DMA_DESC_DONE_MASK, desc[idx].ctrl))
++		if (!FIELD_GET(NPU_RX_DMA_DESC_DONE_MASK,
++			       READ_ONCE(desc[idx].ctrl)))
 +			return NULL;
 +	}
 +	dma_rmb();
- 
- 	for (i = 0; i < nframes; i++) {
- 		struct mt76_queue_entry *e = &q->entry[index];
- 		int len = FIELD_GET(NPU_RX_DMA_DESC_CUR_LEN_MASK,
- 				    desc[index].ctrl);
- 
--		if (!FIELD_GET(NPU_RX_DMA_DESC_DONE_MASK, desc[index].ctrl)) {
--			dev_kfree_skb(skb);
--			return NULL;
--		}
--
 +
- 		dma_sync_single_for_cpu(dev->dma_dev, e->dma_addr[0],
- 					e->dma_len[0],
- 					page_pool_get_dma_dir(q->page_pool));
-@@ -108,7 +126,6 @@ static struct sk_buff *mt76_npu_dequeue(struct mt76_dev *dev,
++	if (unlikely(nframes > MAX_SKB_FRAGS + 1)) {
++		for (i = 0; i < nframes; i++) {
++			struct mt76_queue_entry *e = &q->entry[index];
++
++			dma_sync_single_for_cpu(dev->dma_dev, e->dma_addr[0],
++						e->dma_len[0],
++						page_pool_get_dma_dir(q->page_pool));
++			mt76_put_page_pool_buf(e->buf, false);
++			e->buf = NULL;
++			index = (index + 1) % q->ndesc;
++		}
++		q->tail = index;
++		q->queued -= nframes;
++		return NULL;
++	}
++
++	for (i = 0; i < nframes; i++) {
++		struct mt76_queue_entry *e = &q->entry[index];
++		u32 cur_ctrl = READ_ONCE(desc[index].ctrl);
++		int len = FIELD_GET(NPU_RX_DMA_DESC_CUR_LEN_MASK, cur_ctrl);
++
++		dma_sync_single_for_cpu(dev->dma_dev, e->dma_addr[0],
++					e->dma_len[0],
++					page_pool_get_dma_dir(q->page_pool));
+ 
+ 		if (!skb) {
+ 			skb = napi_build_skb(e->buf, q->buf_size);
+-			if (!skb)
++			if (!skb) {
++				int j;
++
++				mt76_put_page_pool_buf(e->buf, false);
++				e->buf = NULL;
++				index = (index + 1) % q->ndesc;
++				for (j = 1; j < nframes; j++) {
++					struct mt76_queue_entry *ej = &q->entry[index];
++
++					dma_sync_single_for_cpu(dev->dma_dev, ej->dma_addr[0],
++								ej->dma_len[0],
++								page_pool_get_dma_dir(q->page_pool));
++					mt76_put_page_pool_buf(ej->buf, false);
++					ej->buf = NULL;
++					index = (index + 1) % q->ndesc;
++				}
++				q->tail = index;
++				q->queued -= nframes;
+ 				return NULL;
++			}
+ 
+ 			__skb_put(skb, len);
+ 			skb_reset_mac_header(skb);
+@@ -101,14 +173,15 @@
+ 				skb_add_rx_frag(skb, nr_frags, page,
+ 						e->buf - page_address(page),
+ 						len, q->buf_size);
++			else
++				mt76_put_page_pool_buf(e->buf, false);
+ 		}
+ 
+-		*info = desc[index].info;
++		*info = READ_ONCE(desc[index].info);
+ 		index = (index + 1) % q->ndesc;
  	}
  	q->tail = index;
  	q->queued -= i;

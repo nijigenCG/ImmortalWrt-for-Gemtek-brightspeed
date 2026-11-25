@@ -1,0 +1,50 @@
+From 8c5c04e07ae2722aea0a58e5a8b15d469b8d2961 Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Thu, 19 Nov 2026 13:43:43 +0100
+Subject: [PATCH] wifi: mt76: mt7996: drop the TWT agreements at a full reset
+
+The firmware that a full reset reloads holds no TWT agreement, but
+mt7996_mac_full_reset() keeps those of the driver and only runs
+INIT_LIST_HEAD() on dev->twt_list. The disassociation or the removal of
+a station with a flow then corrupts the list.
+
+Drop the TWT agreements of the driver at a full reset as well.
+
+Fixes: 27015b6fbcca ("wifi: mt76: mt7996: enable full system reset support")
+Fixes: ace5d3b6b49e ("wifi: mt76: mt7996: improve hardware restart reliability")
+Link: https://patch.msgid.link/20261119124352.1842164-11-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/mac.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 88236369f..163ad7ebd 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2512,6 +2512,7 @@ static void
+ mt7996_mac_full_reset(struct mt7996_dev *dev)
+ {
+ 	struct ieee80211_hw *hw = mt76_hw(dev);
++	struct mt7996_twt_flow *flow, *tmp;
+ 	struct mt7996_phy *phy;
+ 	LIST_HEAD(list);
+ 	int i;
+@@ -2624,7 +2625,16 @@ mt7996_mac_full_reset(struct mt7996_dev *dev)
+ 						   mt7996_mac_reset_vif_iter, dev);
+ 
+ 	INIT_LIST_HEAD(&dev->sta_rc_list);
+-	INIT_LIST_HEAD(&dev->twt_list);
++	list_for_each_entry_safe(flow, tmp, &dev->twt_list, list) {
++		struct mt7996_sta_link *msta_link;
++
++		msta_link = container_of(flow, struct mt7996_sta_link,
++					 twt.flow[flow->id]);
++		msta_link->twt.flowid_mask &= ~BIT(flow->id);
++		list_del_init(&flow->list);
++	}
++	dev->twt.table_mask = 0;
++	dev->twt.n_agrt = 0;
+ 
+ 	spin_lock_bh(&dev->wed_rro.lock);
+ 	list_splice_init(&dev->wed_rro.poll_list, &list);

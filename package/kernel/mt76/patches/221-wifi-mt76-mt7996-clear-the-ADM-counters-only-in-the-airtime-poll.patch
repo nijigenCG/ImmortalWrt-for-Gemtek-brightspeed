@@ -1,0 +1,81 @@
+From a4bc3dd95b6e22bc9ac491f48efc3034c657fc89 Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Mon, 23 Nov 2026 14:49:09 +0100
+Subject: [PATCH] wifi: mt76: mt7996: clear the ADM counters only in the
+ airtime poll
+
+The driver clears the ADM counters of a WTBL entry with a
+read-modify-write of MT_WTBL_UPDATE. It does so at each vif link add,
+station link add and MLD link removal, and for every entry in
+mt7996_mac_init(). The WM firmware writes the same register at any time
+for its own WTBL updates. A host write that meets one in progress can
+change the entry or the word of that update.
+
+Leave these clears to the firmware. It clears the counters of each
+entry at every WM start and at a station disconnect. At the MLD
+teardown it clears them for every link wcid of the peer group, which
+also holds a link that the driver removed earlier. A link that comes
+back keeps its wcid and its last read, and a new station link starts
+from a last read of 0.
+
+Keep the clear of mt7996_mac_sta_poll() before a counter overflows,
+since nothing else clears the counters while a station stays connected.
+That clear keeps the race. The reads of the poll through the WTBL
+window keep a similar race on the window register.
+
+Fixes: 98686cd21624 ("wifi: mt76: mt7996: add driver for MediaTek Wi-Fi 7 (802.11be) devices")
+Link: https://patch.msgid.link/20261123134920.154270-10-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/init.c | 4 ----
+ mt7996/main.c | 6 +-----
+ 2 files changed, 1 insertion(+), 9 deletions(-)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 673ba13b8..3c6389801 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -631,10 +631,6 @@ void mt7996_mac_init(struct mt7996_dev *dev)
+ 
+ 	mt76_clear(dev, MT_MDP_DCR2, MT_MDP_DCR2_RX_TRANS_SHORT);
+ 
+-	for (i = 0; i < mt7996_wtbl_size(dev); i++)
+-		mt7996_mac_wtbl_update(dev, i,
+-				       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
+-
+ 	if (IS_ENABLED(CONFIG_MT76_LEDS)) {
+ 		i = dev->mphy.leds.pin ? MT_LED_GPIO_MUX3 : MT_LED_GPIO_MUX2;
+ 		mt76_rmw_field(dev, i, MT_LED_GPIO_SEL_MASK, 4);
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 93da94b41..6740cb1fb 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -450,8 +450,6 @@ int mt7996_vif_link_add(struct mt76_phy *mphy, struct ieee80211_vif *vif,
+ 	msta_link->wcid.tx_info |= MT_WCID_TX_INFO_SET;
+ 	mt76_wcid_init(&msta_link->wcid, band_idx);
+ 
+-	mt7996_sta_link_airtime_clear(dev, msta_link);
+-
+ 	if (vif->type != NL80211_IFTYPE_AP &&
+ 	    (!mlink->omac_idx || mlink->omac_idx > 3))
+ 		vif->offload_flags = 0;
+@@ -1368,7 +1366,7 @@ mt7996_mac_sta_init_link(struct mt7996_dev *dev,
+ 
+ 	rcu_assign_pointer(msta->link[link_id], msta_link);
+ 
+-	mt7996_sta_link_airtime_clear(dev, msta_link);
++	memset(msta_link->airtime_ac, 0, sizeof(msta_link->airtime_ac));
+ 
+ 	rcu_assign_pointer(dev->mt76.wcid[idx], &msta_link->wcid);
+ 	mt76_wcid_init(&msta_link->wcid, phy->mt76->band_idx);
+@@ -1402,9 +1400,8 @@ void mt7996_mac_sta_remove_link(struct mt7996_dev *dev,
+ 	mt76_wcid_cleanup(&dev->mt76, &msta_link->wcid);
+ 
+ 	if (msta_link->wcid.link_valid) {
+-		mt7996_sta_link_airtime_clear(dev, msta_link);
+ 		mt76_npu_del_sta(&dev->mt76, msta_link->wcid.phy_idx,
+ 				 msta_link->wcid.idx);
+ 
+ 		mt7996_sta_deflink_release(dev, sta, link_id);
+ 		msta_link->wcid.link_valid = false;
+ 		/* the firmware keeps the link pair of its last MLD setup */

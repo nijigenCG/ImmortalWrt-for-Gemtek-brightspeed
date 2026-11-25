@@ -1,0 +1,41 @@
+From 06ff80b55450685ac53653f217fab76ab62100d3 Mon Sep 17 00:00:00 2001
+From: Zhao Li <enderaoelyther@gmail.com>
+Date: Thu, 19 Nov 2026 02:34:38 +0800
+Subject: [PATCH] wifi: mt76: mt7996: restore the wcid flags on reassociation
+
+On disassociation, mt7996_mac_sta_links_event() clears wcid.sta and
+sets wcid.sta_disabled. Nothing has cleared wcid.sta_disabled on
+reassociation since commit 13e2e9c6b348 ("wifi: mt76: mt7996: use
+mac80211 .sta_state op") started setting it. The ASSOC event used to set
+wcid.sta again only after the rate control commands, and no longer sets
+it at all, so wcid_to_sta() returns NULL for a reassociated station, and
+both mt7996_mcu_add_rate_ctrl() and mt7996_mcu_add_rate_ctrl_fixed()
+dereference it.
+
+Set wcid.sta and clear wcid.sta_disabled at the start of the ASSOC
+event, as for a first association.
+
+Fixes: 13e2e9c6b348 ("wifi: mt76: mt7996: use mac80211 .sta_state op")
+Fixes: 28d519d0d493 ("wifi: mt76: Move RCU section in mt7996_mcu_add_rate_ctrl_fixed()")
+Cc: stable@vger.kernel.org
+Signed-off-by: Zhao Li <enderaoelyther@gmail.com>
+Link: https://patch.msgid.link/20261118183438.44794-1-enderaoelyther@gmail.com
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/main.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 9460590b3..cb1778b08 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -1582,6 +1582,9 @@ mt7996_mac_sta_links_event(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 
+ 		switch (ev) {
+ 		case MT76_STA_EVENT_ASSOC:
++			msta_link->wcid.sta = 1;
++			msta_link->wcid.sta_disabled = 0;
++
+ 			err = mt7996_mcu_add_sta(dev, link_conf, link_sta,
+ 						 link, msta_link,
+ 						 CONN_STATE_CONNECT, true);

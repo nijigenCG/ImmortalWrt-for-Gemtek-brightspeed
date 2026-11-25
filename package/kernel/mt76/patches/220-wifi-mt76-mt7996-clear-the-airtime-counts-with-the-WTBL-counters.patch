@@ -1,0 +1,111 @@
+From 59f00daa9756fbc14bdaf605ca1c3a49d02a5d4f Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Sat, 21 Nov 2026 13:09:24 +0100
+Subject: [PATCH] wifi: mt76: mt7996: clear the airtime counts with the WTBL
+ counters
+
+mt7996_mac_sta_poll() reports the airtime of a link as the difference
+between the ADM counters of its WTBL entry and msta_link->airtime_ac[].
+The driver clears the counters when it sets up or removes a link, but
+keeps airtime_ac[]. A link that the driver uses again thus starts with
+stale values: msta->deflink after a full reset, when the restart adds
+each station again on its old drv_priv, and a link that
+mt7996_mac_sta_change_links() removes and later adds back. The first
+poll then gives a u32 difference that wraps, and
+ieee80211_sta_register_airtime() adds up to about 2^32 microseconds to
+the airtime of the station.
+
+Clear airtime_ac[] whenever the driver clears the counters of a link.
+
+Fixes: 27015b6fbcca ("wifi: mt76: mt7996: enable full system reset support")
+Fixes: f520eceacd24 ("wifi: mt76: mt7996: Add mt7996_mac_sta_change_links callback")
+Link: https://patch.msgid.link/20261121120926.3603979-15-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/mac.c    | 16 ++++++++++------
+ mt7996/main.c   |  8 +++-----
+ mt7996/mt7996.h |  2 ++
+ 3 files changed, 15 insertions(+), 11 deletions(-)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 4337cda5f..7b2592b88 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -64,6 +64,14 @@ bool mt7996_mac_wtbl_update(struct mt7996_dev *dev, int idx, u32 mask)
+ 			 0, 5000);
+ }
+ 
++void mt7996_sta_link_airtime_clear(struct mt7996_dev *dev,
++				   struct mt7996_sta_link *msta_link)
++{
++	mt7996_mac_wtbl_update(dev, msta_link->wcid.idx,
++			       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
++	memset(msta_link->airtime_ac, 0, sizeof(msta_link->airtime_ac));
++}
++
+ u32 mt7996_mac_wtbl_lmac_addr(struct mt7996_dev *dev, u16 wcid, u8 dw)
+ {
+ 	mt76_wr(dev, MT_WTBLON_TOP_WDUCR,
+@@ -135,12 +143,8 @@ static void mt7996_mac_sta_poll(struct mt7996_dev *dev)
+ 			addr += 8;
+ 		}
+ 
+-		if (clear) {
+-			mt7996_mac_wtbl_update(dev, idx,
+-					       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
+-			memset(msta_link->airtime_ac, 0,
+-			       sizeof(msta_link->airtime_ac));
+-		}
++		if (clear)
++			mt7996_sta_link_airtime_clear(dev, msta_link);
+ 
+ 		if (!wcid->sta)
+ 			continue;
+diff --git a/mt7996/main.c b/mt7996/main.c
+index ac3fddbb6..93da94b41 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -450,8 +450,7 @@ int mt7996_vif_link_add(struct mt76_phy *mphy, struct ieee80211_vif *vif,
+ 	msta_link->wcid.tx_info |= MT_WCID_TX_INFO_SET;
+ 	mt76_wcid_init(&msta_link->wcid, band_idx);
+ 
+-	mt7996_mac_wtbl_update(dev, idx,
+-			       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
++	mt7996_sta_link_airtime_clear(dev, msta_link);
+ 
+ 	if (vif->type != NL80211_IFTYPE_AP &&
+ 	    (!mlink->omac_idx || mlink->omac_idx > 3))
+@@ -1369,7 +1368,7 @@ mt7996_mac_sta_init_link(struct mt7996_dev *dev,
+ 
+ 	rcu_assign_pointer(msta->link[link_id], msta_link);
+ 
+-	mt7996_mac_wtbl_update(dev, idx, MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
++	mt7996_sta_link_airtime_clear(dev, msta_link);
+ 
+ 	rcu_assign_pointer(dev->mt76.wcid[idx], &msta_link->wcid);
+ 	mt76_wcid_init(&msta_link->wcid, phy->mt76->band_idx);
+@@ -1403,10 +1402,9 @@ void mt7996_mac_sta_remove_link(struct mt7996_dev *dev,
+ 	mt76_wcid_cleanup(&dev->mt76, &msta_link->wcid);
+ 
+ 	if (msta_link->wcid.link_valid) {
+-		mt7996_mac_wtbl_update(dev, msta_link->wcid.idx,
+-				       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
++		mt7996_sta_link_airtime_clear(dev, msta_link);
+ 		mt76_npu_del_sta(&dev->mt76, msta_link->wcid.phy_idx,
+ 				 msta_link->wcid.idx);
+ 
+ 		mt7996_sta_deflink_release(dev, sta, link_id);
+ 		msta_link->wcid.link_valid = false;
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 0140751c8..67c0b64a4 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -985,6 +985,8 @@ static inline bool mt7996_has_ext_eeprom(struct mt7996_dev *dev)
+ void mt7996_mac_init(struct mt7996_dev *dev);
+ u32 mt7996_mac_wtbl_lmac_addr(struct mt7996_dev *dev, u16 wcid, u8 dw);
+ bool mt7996_mac_wtbl_update(struct mt7996_dev *dev, int idx, u32 mask);
++void mt7996_sta_link_airtime_clear(struct mt7996_dev *dev,
++				   struct mt7996_sta_link *msta_link);
+ void mt7996_mac_reset_counters(struct mt7996_phy *phy);
+ void mt7996_mac_cca_stats_reset(struct mt7996_phy *phy);
+ void mt7996_mac_enable_nf(struct mt7996_dev *dev, u8 band);

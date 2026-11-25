@@ -1,0 +1,57 @@
+From 4bbb6457ff86f1aa7ae76368dc148b9fc9176811 Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Tue, 24 Nov 2026 09:43:03 +0100
+Subject: [PATCH] wifi: mt76: mt7996: apply the PS sync bitmap to MLD stations
+ alone
+
+The firmware sends the UNI_PS_MULTI_CLIENT_INFO_BITMAP event after a PS
+change of an MLD link. It sets a bit only for a record in an MLD group,
+and leaves the bit of every other wcid at 0. mt7996_mcu_rx_ps_sync()
+takes each clear bit as a PS leave, so every bitmap event clears
+MT_WCID_FLAG_PS of each dozing station that is not an MLD. mt76 then
+sends full bursts to a station that the firmware holds in power save.
+
+Apply a bit only to the link wcids of an MLD station. The check uses
+sta->mlo, not wcid->link_valid. hostapd adds every station of an AP MLD
+on a link, so a station that is not an MLD also has link_valid set.
+
+The bitmap also no longer clears the flag that a UNI_PS_CLIENT_INFO
+event sets for the TWT agreement of a station. A TWT station that is
+not an MLD thus keeps the flag until the firmware reports a PS leave or
+the end of the agreement. It gets one frame per pass until then, with
+no frame lost. An AP with no MLD peer already behaves this way.
+
+Fixes: 2d16caccd278 ("wifi: mt76: mt7996: handle UNI PS sync events")
+Link: https://patch.msgid.link/20261124084309.1981968-14-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/mcu.c | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 4d0edecd0..4cdd9bce5 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -1019,9 +1019,19 @@ mt7996_mcu_rx_ps_sync(struct mt7996_dev *dev, struct sk_buff *skb)
+ 			int bitmap_len = tag_len - sizeof(*tlv);
+ 			int i;
+ 
+-			for (i = 0; i < bitmap_len * 8; i++)
+-				mt7996_mcu_ps_transition(dev, i,
+-					!!(bitmap[i / 8] & BIT(i % 8)));
++			for (i = 0; i < bitmap_len * 8; i++) {
++				struct ieee80211_sta *sta;
++				struct mt76_wcid *wcid;
++				bool ps;
++
++				wcid = mt76_wcid_ptr(dev, i);
++				sta = wcid_to_sta(wcid);
++				if (!sta || !sta->mlo)
++					continue;
++
++				ps = bitmap[i / 8] & BIT(i % 8);
++				mt76_sta_ps_transition(&dev->mt76, wcid, ps);
++			}
+ 			break;
+ 		}
+ 		}

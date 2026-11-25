@@ -1,0 +1,98 @@
+From 83520a045a45de7164e757fc983c02cd3da24b5c Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Thu, 19 Nov 2026 13:43:47 +0100
+Subject: [PATCH] wifi: mt76: mt7996: publish the global wcid again after a
+ full reset
+
+After a full reset, dev->wcid[] no longer holds the global wcid.
+mt76_reset_device() unpublishes it with every other wcid, and
+mt7996_mac_full_reset() only allocates its index again. A frame on the
+global wcid that requests a TX status then reports no ACK, since
+mt76_tx_status_skb_add() does not find the wcid in dev->wcid[].
+
+Set up the global wcid in the full reset as at probe time.
+
+Fixes: ace5d3b6b49e ("wifi: mt76: mt7996: improve hardware restart reliability")
+Link: https://patch.msgid.link/20261119124352.1842164-15-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/init.c   | 29 +++++++++++++++++------------
+ mt7996/mac.c    |  3 +--
+ mt7996/mt7996.h |  1 +
+ 3 files changed, 19 insertions(+), 14 deletions(-)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 2574d1390..673ba13b8 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -1284,9 +1284,24 @@ static int mt7996_variant_fem_init(struct mt7996_dev *dev)
+ 	return 0;
+ }
+ 
++int mt7996_global_wcid_init(struct mt7996_dev *dev)
++{
++	int idx = mt76_wcid_alloc(dev->mt76.wcid_mask, MT7996_WTBL_STA);
++
++	if (idx)
++		return -ENOSPC;
++
++	dev->mt76.global_wcid.idx = idx;
++	dev->mt76.global_wcid.hw_key_idx = -1;
++	dev->mt76.global_wcid.tx_info |= MT_WCID_TX_INFO_SET;
++	rcu_assign_pointer(dev->mt76.wcid[idx], &dev->mt76.global_wcid);
++
++	return 0;
++}
++
+ static int mt7996_init_hardware(struct mt7996_dev *dev)
+ {
+-	int ret, idx;
++	int ret;
+ 
+ 	mt76_wr(dev, MT_INT_SOURCE_CSR, ~0);
+ 	if (is_mt7992(&dev->mt76)) {
+@@ -1325,17 +1340,7 @@ static int mt7996_init_hardware(struct mt7996_dev *dev)
+ 	if (ret < 0)
+ 		return ret;
+ 
+-	/* Beacon and mgmt frames should occupy wcid 0 */
+-	idx = mt76_wcid_alloc(dev->mt76.wcid_mask, MT7996_WTBL_STA);
+-	if (idx)
+-		return -ENOSPC;
+-
+-	dev->mt76.global_wcid.idx = idx;
+-	dev->mt76.global_wcid.hw_key_idx = -1;
+-	dev->mt76.global_wcid.tx_info |= MT_WCID_TX_INFO_SET;
+-	rcu_assign_pointer(dev->mt76.wcid[idx], &dev->mt76.global_wcid);
+-
+-	return 0;
++	return mt7996_global_wcid_init(dev);
+ }
+ 
+ void mt7996_set_stream_vht_txbf_caps(struct mt7996_phy *phy)
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 163ad7ebd..438cabc5e 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2581,8 +2581,7 @@ mt7996_mac_full_reset(struct mt7996_dev *dev)
+ 		kfree(e);
+ 	}
+ 
+-	i = mt76_wcid_alloc(dev->mt76.wcid_mask, MT7996_WTBL_STA);
+-	dev->mt76.global_wcid.idx = i;
++	mt7996_global_wcid_init(dev);
+ 	dev->recovery.hw_full_reset = false;
+ 
+ 	mutex_unlock(&dev->mt76.mutex);
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 0d367888d..cf76900a2 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -770,6 +770,7 @@ irqreturn_t mt7996_irq_handler(int irq, void *dev_instance);
+ u64 __mt7996_get_tsf(struct ieee80211_hw *hw, struct mt7996_vif_link *link);
+ int mt7996_register_device(struct mt7996_dev *dev);
+ void mt7996_unregister_device(struct mt7996_dev *dev);
++int mt7996_global_wcid_init(struct mt7996_dev *dev);
+ int mt7996_vif_link_add(struct mt76_phy *mphy, struct ieee80211_vif *vif,
+ 			struct ieee80211_bss_conf *link_conf,
+ 			struct mt76_vif_link *mlink);

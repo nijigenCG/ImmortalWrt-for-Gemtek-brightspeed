@@ -1,0 +1,53 @@
+From 9b06eef071847f1abc1d46aedf9eceb1554b5660 Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Wed, 18 Nov 2026 17:18:12 +0100
+Subject: [PATCH] wifi: mt76: mt7996: limit the SKU TX power to the current
+ channel
+
+Since the switch to a single multi-radio wiphy,
+mt7996_mcu_set_txpower_sku() takes the TX power from phy->txpower
+instead of hw->conf.power_level. phy->txpower stays 0 until a BSS sets
+its TX power, so a scan or an offchannel operation before that gets the
+SKU limits of 0 dBm.
+
+Take the maximum power of the current channel, limited by the TX power
+of the BSS once a BSS sets it. Mark a phy without a BSS TX power with
+INT_MIN, as mac80211 does for bss_conf.txpower, since 0 dBm is a valid
+TX power of a BSS.
+
+Fixes: 69d54ce7491d ("wifi: mt76: mt7996: switch to single multi-radio wiphy")
+Link: https://patch.msgid.link/20261118161827.1208649-1-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/init.c | 1 +
+ mt7996/mcu.c  | 5 ++++-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 21840ceae..ab2de70f1 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -426,6 +426,7 @@ mt7996_init_wiphy_band(struct ieee80211_hw *hw, struct mt7996_phy *phy)
+ 
+ 	phy->slottime = 9;
+ 	phy->beacon_rate = -1;
++	phy->txpower = INT_MIN;
+ 	phy->rxfilter = MT_WF_RFCR_DROP_OTHER_UC;
+ 
+ 	if (phy->mt76->cap.has_2ghz) {
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index ed321cb4c..4dc2a6cc1 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -6062,7 +6062,10 @@ int mt7996_mcu_set_txpower_sku(struct mt7996_phy *phy)
+ 	struct sk_buff *skb;
+ 	int i, tx_power;
+ 
+-	tx_power = mt76_get_power_bound(mphy, phy->txpower);
++	tx_power = mphy->chandef.chan->max_power;
++	if (phy->txpower != INT_MIN)
++		tx_power = min(tx_power, phy->txpower);
++	tx_power = mt76_get_power_bound(mphy, tx_power);
+ 	tx_power = mt76_get_rate_power_limits(mphy, mphy->chandef.chan,
+ 					      &la, tx_power);
+ 	mphy->txpower_cur = tx_power;

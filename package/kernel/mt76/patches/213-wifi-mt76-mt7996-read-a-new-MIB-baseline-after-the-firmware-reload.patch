@@ -1,0 +1,49 @@
+From c6d10d23f8c03ecf32c74405d18a7067365a3d40 Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Wed, 18 Nov 2026 17:18:26 +0100
+Subject: [PATCH] wifi: mt76: mt7996: read a new MIB baseline after the
+ firmware reload
+
+mt7996_mcu_get_chan_mib_info() adds the difference between the MIB
+airtime counters of the firmware and the baseline in phy->state_ts to
+the channel state. Since the full system reset was added,
+mt7996_mac_restart() loads the firmware again, which counts from zero,
+but reads no new baseline. The first survey update after the reset
+thus subtracts the counts of the old firmware, and the busy, rx and tx
+times of a survey dump can wrap below zero.
+
+Read a new baseline for every running phy at the end of the restart. A
+phy that does not run reads it at its next start instead, since the
+reloaded firmware has not enabled its radio, and a failed query would
+fail the restart.
+
+Fixes: 27015b6fbcca ("wifi: mt76: mt7996: enable full system reset support")
+Link: https://patch.msgid.link/20261118161827.1208649-15-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/mac.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 639d686d3..e1b1dd593 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2449,6 +2449,18 @@ mt7996_mac_restart(struct mt7996_dev *dev)
+ 			goto out;
+ 	}
+ 
++	/* the reloaded firmware counts the MIB airtime from zero */
++	mt7996_for_each_phy(dev, phy) {
++		if (!test_bit(MT76_STATE_RUNNING, &phy->mt76->state)) {
++			phy->counter_reset = false;
++			continue;
++		}
++
++		ret = mt7996_mcu_get_chan_mib_info(phy, true);
++		if (ret)
++			goto out;
++	}
++
+ out:
+ 	/* reset done */
+ 	mt7996_for_each_phy(dev, phy)

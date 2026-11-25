@@ -1,0 +1,137 @@
+From 742a17ccb29e7fd0d0ef950ca5264ef78dd4d1aa Mon Sep 17 00:00:00 2001
+From: Felix Fietkau <nbd@nbd.name>
+Date: Tue, 24 Nov 2026 09:43:04 +0100
+Subject: [PATCH] wifi: mt76: mt7996: keep the TWT state out of the PS flag
+
+The UNI_PS_CLIENT_INFO entry of the PS sync event is the TWT agreement
+state of a station, not its power save state. The firmware sends it at
+the add of the first agreement of a station and at the delete of the
+last one. It sends no event per service period.
+mt7996_mcu_rx_ps_sync() writes it into MT_WCID_FLAG_PS, so the PS
+throttle holds a TWT station to one frame per AC for the whole
+agreement.
+
+Do not write the entry into the flag. Only a station that is not an MLD
+gets an agreement. The firmware reports no PS change of such a station
+in TWT operation. It gates the air time of the station between service
+periods itself.
+
+Clear the flag at the first agreement instead. A flag set before it
+would otherwise stay set for the whole agreement. Also ignore a PS enter
+of a station with an agreement. The firmware can deliver an enter that
+it stored before the agreement after the clear. After the last
+agreement, the flag stays clear until the firmware reports the next PS
+change. The host does not know the PS state of the station at that
+point.
+
+Set the flow in the mask of the station before the add command. The
+firmware gates the air time from the add on, and an enter can arrive
+before the command returns. If the command fails, remove the flow from
+the mask again.
+
+The PS sync event reads the flow mask of a station without the mutex
+that its writers hold. Mark the accesses.
+
+Fixes: 2d16caccd278 ("wifi: mt76: mt7996: handle UNI PS sync events")
+Link: https://patch.msgid.link/20261124084309.1981968-15-nbd@nbd.name
+Signed-off-by: Felix Fietkau <nbd@nbd.name>
+---
+ mt7996/mac.c  | 11 ++++++++---
+ mt7996/main.c |  2 +-
+ mt7996/mcu.c  |  9 +++++++--
+ 3 files changed, 16 insertions(+), 6 deletions(-)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 4d83dd876..743539558 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2623,7 +2623,8 @@ mt7996_mac_full_reset(struct mt7996_dev *dev)
+ 
+ 		msta_link = container_of(flow, struct mt7996_sta_link,
+ 					 twt.flow[flow->id]);
+-		msta_link->twt.flowid_mask &= ~BIT(flow->id);
++		WRITE_ONCE(msta_link->twt.flowid_mask,
++			   msta_link->twt.flowid_mask & ~BIT(flow->id));
+ 		list_del_init(&flow->list);
+ 	}
+ 	dev->twt.table_mask = 0;
+@@ -3432,15 +3433,18 @@ void mt7996_mac_add_twt_setup(struct ieee80211_hw *hw,
+ 	}
+ 	flow->tsf = le64_to_cpu(twt_agrt->twt);
+ 
++	WRITE_ONCE(msta_link->twt.flowid_mask,
++		   msta_link->twt.flowid_mask | BIT(flowid));
+ 	if (mt7996_mcu_twt_agrt_update(dev, &msta->vif->deflink, flow,
+ 				       MCU_TWT_AGRT_ADD)) {
++		WRITE_ONCE(msta_link->twt.flowid_mask,
++			   msta_link->twt.flowid_mask & ~BIT(flowid));
+ 		list_del(&flow->list);
+ 		goto unlock;
+ 	}
+ 
+ 	setup_cmd = TWT_SETUP_CMD_ACCEPT;
+ 	dev->twt.table_mask |= BIT(table_id);
+-	msta_link->twt.flowid_mask |= BIT(flowid);
+ 	dev->twt.n_agrt++;
+ 
+ unlock:
+@@ -3472,7 +3476,8 @@ void mt7996_mac_twt_teardown_flow(struct mt7996_dev *dev,
+ 		return;
+ 
+ 	list_del_init(&flow->list);
+-	msta_link->twt.flowid_mask &= ~BIT(flowid);
++	WRITE_ONCE(msta_link->twt.flowid_mask,
++		   msta_link->twt.flowid_mask & ~BIT(flowid));
+ 	dev->twt.table_mask &= ~BIT(flow->table_id);
+ 	dev->twt.n_agrt--;
+ }
+diff --git a/mt7996/main.c b/mt7996/main.c
+index ec406445f..da15135a7 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -2050,7 +2050,7 @@ mt7996_mac_sta_remove(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 		if (msta_link->twt.flowid_mask & BIT(i))
+ 			list_del_init(&msta_link->twt.flow[i].list);
+ 	}
+-	msta_link->twt.flowid_mask = 0;
++	WRITE_ONCE(msta_link->twt.flowid_mask, 0);
+ 
+ 	for (i = 0; i < ARRAY_SIZE(msta->link); i++)
+ 		mt7996_mac_sta_remove_link(dev, sta, i, true);
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 4cdd9bce5..56d417dd6 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -951,12 +951,17 @@ mt7996_mcu_wed_rro_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ static void
+ mt7996_mcu_ps_transition(struct mt7996_dev *dev, u16 wcid_idx, bool ps)
+ {
++	struct mt7996_sta_link *msta_link;
+ 	struct mt76_wcid *wcid;
+ 
+ 	wcid = mt76_wcid_ptr(dev, wcid_idx);
+ 	if (!wcid || !wcid_to_sta(wcid))
+ 		return;
+ 
++	msta_link = container_of(wcid, struct mt7996_sta_link, wcid);
++	if (ps && READ_ONCE(msta_link->twt.flowid_mask))
++		return;
++
+ 	mt76_sta_ps_transition(&dev->mt76, wcid, ps);
+ }
+ 
+@@ -987,12 +992,12 @@ mt7996_mcu_rx_ps_sync(struct mt7996_dev *dev, struct sk_buff *skb)
+ 		case UNI_PS_CLIENT_INFO: {
+ 			struct mt7996_mcu_ps_client_info *info = (void *)tlv;
+ 
+-			if (tag_len < sizeof(*info))
++			if (tag_len < sizeof(*info) || !info->ps_bit)
+ 				break;
+ 
+ 			mt7996_mcu_ps_transition(dev,
+ 						 le16_to_cpu(info->wlan_idx),
+-						 info->ps_bit);
++						 false);
+ 			break;
+ 		}
+ 		case UNI_PS_MULTI_CLIENT_INFO: {
