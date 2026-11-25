@@ -1,0 +1,21 @@
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+
+if [ -w /sys/module/mt7996e/parameters/npu_tx_band_map ]; then
+	if [ "$(cat /sys/module/mt7996e/parameters/npu_tx_band_map)" != "2" ]; then
+		echo 2 > /sys/module/mt7996e/parameters/npu_tx_band_map
+		[ -x /etc/init.d/bridger ] && /etc/init.d/bridger restart
+	fi
+fi
+
+# Pin high-rate GICv3 IRQs across CPU1-3 (leaving mt7996e PCIe MSI on CPU0)
+pin_irq() {
+	local name="$1" mask="$2" irq
+	irq=$(awk -v n="$name" '$NF == n {gsub(":", "", $1); print $1; exit}' /proc/interrupts)
+	[ -n "$irq" ] && [ -w "/proc/irq/$irq/smp_affinity" ] && echo "$mask" > "/proc/irq/$irq/smp_affinity" 2>/dev/null
+}
+pin_irq "airoha_eth.4" 2
+pin_irq "mt76-npu.0" 4
+pin_irq "mt76-npu.1" 8
+
+exit 0
