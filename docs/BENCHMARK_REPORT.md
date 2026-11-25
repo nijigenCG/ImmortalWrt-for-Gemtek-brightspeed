@@ -92,6 +92,7 @@
 | :--- | :---: | :---: | :--- | :--- |
 | **Phase I (`P0`)** | 仅旧版 WDT 1 条，零内核/mt76 异常 | 2.4G: 35 / 5G: 2 / 6G: 1 | DL P16: `2,275.13 Mbps`（retry `1.95%`）<br>UL P4: `1,322.11 Mbps`（retry `0.34%`） | 三频功率 `28/30/30 dBm`，零 NPU/RRO/txfree 异常 |
 | **Phase J (`P0+P1`)** | **`NONE`（100% 零报错）** | 2.4G: 36 / 5G: 5 / 6G: 1 | DL P8: **`2,690.27 Mbps`**（**MPDU retry `0.75%`**，`MCS9 75.4%`）<br>UL P4: **`1,850.99 Mbps`**（retry `1.58%`，`MCS9 89.4%`） | WDT 报错清零；PMU 就绪；`ethtool -S wan` 实测 `1.02 GB RX / 2.78 GB TX` **0 error / 0 drop** |
+| **Phase J (`P0+P1` 近场极限)** | **`NONE`（100% 零报错）** | 2.4G: 36 / 5G: 5 / 6G: 1 | `RSSI -7~-9 dBm`（AP `-29 dBm`）：<br>DL `P1/P4/P8/P16`: `1,823` / **`3,237`** / **`3,353.45`** / **`3,326.35 Mbps`**（`MCS11 51.8% + MCS12 23.7%`）<br>UL `P4/P8`: **`2,517.01`** / **`2,632.16 Mbps`**（`MCS12 48.2% + MCS11 22.3% + MCS13 1.5%`） | `ethtool -S wan` 累计 `20.89 GB RX / 13.35 GB TX`，**`0` error / `0` drop / `0` CRC** |
 
 ---
 
@@ -139,6 +140,7 @@
 
 | Firmware | Kernel | `bridger` L2 Offload | 6 GHz TX Power / Tuning | `ppe_bnd` Entries | AP CPU (`cpu0` / Peak) | DL `P1` / `P4` / `P16` (Mbps) | UL `P1` / `P4` / `P16` (Mbps) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Pure-AP (`Phase J`, P0+P1)** | `6.18.60` | **Enabled** (`cls_bpf`/`cls_flower`/`act_vlan`) | `30 dBm` / `npu_tx_band_map=2` (near-field `-7~-9 dBm`) | **`4 ~ 34`** | **`~1%`** (zero `dmesg` errors) | `1823` / **`3237`** (`P8:` **`3353`**) / **`3326`** | — / **`2517`** / **`2632`** (`P8`, `MCS 12`) |
 | **Pure-AP (`Phase G`)** | `6.18.60` | **Enabled** (`cls_bpf`/`cls_flower`/`act_vlan`) | `30 dBm` / `npu_tx_band_map=2`, `radio2 eBF=0` | **`4 ~ 34`** | **`~1%`** | `1890` / **`2780~3050`** / **`2819~3050`** | — / **`2245`** (`MCS 10`) / — |
 | **Pure-AP (`Phase B v2`)** | `6.18.60` | **Enabled** | `30 dBm` / `-42 dBm` | `4 ~ 34` | `0.46% ~ 1.62%` (max `12.5%`) | `1793` / `2364~2453` / `2633~2713` | `1594` / `1808~1848` / `1890~1914` |
 | **YYH (`xr1710g_260831`)** | `6.18.44` | Missing | `30 dBm` | `0` | **`86.7% ~ 94.0%`** | `42` / `1400` / `1457` | `793` / `775` / `793` |
