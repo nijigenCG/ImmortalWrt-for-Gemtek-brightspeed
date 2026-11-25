@@ -1,0 +1,53 @@
+From: Phase G <phaseG@local>
+Subject: [PATCH] wifi: mt76: mt7996: route 6GHz/5GHz NPU TX offload via PCIe0 (wdma_idx=0)
+
+On boards like Gemtek XR1710G (Airoha AN7581 + MT7996), PCIe0 is Gen3 x2
+(15.752 Gb/s) carrying NPU TX ring 0 (wdma_idx=0, PCIE0_TX18 0x200d4420)
+while PCIe2 (hif2) is Gen2 x1 (4.000 Gb/s) carrying NPU TX ring 2
+(wdma_idx=1, PCIE2_TX21 0x200d8450). Stock mt7996_net_fill_forward_path()
+maps 2.4GHz (MT_BAND0) to wdma_idx=0 (PCIe0) and 5GHz+6GHz (MT_BAND1/2)
+to wdma_idx=1 (PCIe2).
+
+Add runtime-tunable module parameter `npu_tx_band_map` (default=0):
+  0 = upstream default (2.4G -> PCIe0, 5G+6G -> PCIe2 [1024 desc])
+  1 = 6G dedicated on PCIe0 [512 desc], 2.4G+5G on PCIe2
+  2 = 5G+6G on PCIe0 [512 desc], 2.4G on PCIe2 (matches BAND0_PCIE1 & host q_tx)
+
+---
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -7,6 +7,10 @@
+ #include "mcu.h"
+ #include "mac.h"
+ 
++static int npu_tx_band_map = 0;
++module_param(npu_tx_band_map, int, 0644);
++MODULE_PARM_DESC(npu_tx_band_map, "NPU TX wdma_idx map: 0=stock, 1=6G->PCIe0, 2=5G+6G->PCIe0");
++
+ int mt7996_run(struct mt7996_phy *phy)
+ {
+ 	struct mt7996_dev *dev = phy->dev;
+@@ -3277,11 +3281,19 @@ mt7996_net_fill_forward_path(struct ieee
+ 		path->mtk_wdma.wdma_idx = wed->wdma_idx;
+ 	else
+ #endif
+-	if (is_mt7996(&dev->mt76) && mt76_npu_device_active(&dev->mt76) &&
+-	    msta_link->wcid.phy_idx == MT_BAND2)
+-		path->mtk_wdma.wdma_idx = 1;
+-	else
++	if (is_mt7996(&dev->mt76) && mt76_npu_device_active(&dev->mt76)) {
++		u8 band = msta_link->wcid.phy_idx;
++
++		if (npu_tx_band_map == 1)
++			path->mtk_wdma.wdma_idx = (band == MT_BAND2) ? 0 : 1;
++		else if (npu_tx_band_map == 2)
++			path->mtk_wdma.wdma_idx = (band == MT_BAND0) ? 1 : 0;
++		else
++			path->mtk_wdma.wdma_idx = (band == MT_BAND2) ? 1 : band;
++	} else {
+ 		path->mtk_wdma.wdma_idx = link->mt76.band_idx;
++	}
++
+ 	path->mtk_wdma.bss = link->mt76.idx;
+ 	path->mtk_wdma.queue = 0;
+ 	path->mtk_wdma.wcid = msta_link->wcid.idx;
