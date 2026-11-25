@@ -11,7 +11,10 @@
 
 本仓库基于 [naoki66/ImmortalWrt-for-Gemtek-brightspeed](https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed)（上游提交 `475b6b67ca` / Linux `6.18.60`），面向 **Gemtek XR1710G**（Airoha AN7581 四核 A53 + MediaTek MT7996 三频 Wi-Fi 7 + 双 10GbE RTL8261BE）打造的**永久纯 AP（Pure-AP-Only）高吞吐二层无线桥接基线固件**：
 
-- **预编译固件下载**：见本仓库 [Releases (`xr1710g-pure-ap-phaseG-20261124`)](https://github.com/nijigenCG/ImmortalWrt-for-Gemtek-brightspeed/releases/tag/xr1710g-pure-ap-phaseG-20261124)（`.itb` 仅 `20.54 MiB` / `21,532,990` bytes，`SHA256: c30db27cff9901a4100482d567170f745b5ff17cd3d864576b1a04458dda11d9`）。
+- **预编译固件下载**：见本仓库 [Releases (`xr1710g-pure-ap-phaseJ-p0p1-20261125`)](https://github.com/nijigenCG/ImmortalWrt-for-Gemtek-brightspeed/releases/tag/xr1710g-pure-ap-phaseJ-p0p1-20261125)（`.itb` `20.54 MiB`，`SHA256: 4b8ac7d234f495e1f3dcfd6082fe46461ea6b82d4a4a5b9bfd8c9b206c008c4a`）。
+- **Phase J (`P0+P1`) 在 Phase G 峰值吞吐引擎基础上新增的稳定性与诊断加固**：
+  - **P0（`mt76` / NPU / RRO 稳定性大修）**：解包修复上游原双层包装未生效的 `128/129/132/134`（Full-Reset/L1 SER NPU 自愈）；加固 `126-v2` NPU RX 环防越界/防死锁；合入 `openwrt/mt76` 11 月 24 个核心修复（HW-RRO `qos_ctl` 修 CCMP 重放误丢包、GCMP-256/BIGTK PN 保护、TWT/MLD PS-sync 保护非 MLD IoT 设备、WTBL 竞态与 L1 SER 信道恢复）；合入 `yahuisme` `913`（NPU 多描述符 TXFREE 线性化防越界读）与 `914`（RRO 页面防泄漏）；移除风险死补丁 `133`。
+  - **P1（零报错开机与 10GbE / 射频运维增强）**：`procd/001` 协调 AN7581 28s 硬件看门狗彻底清零开机 `dmesg` 报错；`iwinfo 998/999` 修复 single-wiphy 分频段独立扫描与频率精确功率列表；主线 `844a34e63f` 启用 `arm,cortex-a53-pmu`；`747-02` + `9999-40` 支持 RTL8261BE 实报真实协商速率与 `ethtool -S` 29 项 GDM 硬件统计；清理双层死补丁 `929-03`。
 - **设计理念**：只做极致稳定、低 CPU 占用的有线 ↔ 无线二层高速桥接 AP，不与上级软路由/光猫拨号抢 DHCP、路由、代理资源：
   - **完整保留硬件转发与 Wi-Fi 7 引擎**：
     - Airoha **NPU (`0.1111`)** + **PPE / PPE2 / L2B** 硬件转发，配合 **`bridger` eBPF 桥接加速器**（含 `cls_bpf` / `cls_flower` / `act_vlan`），实现无线 ↔ 有线二层流表纯硬件卸载。
@@ -80,7 +83,7 @@
 - **从同系列（`gemtek,xr1710g`）升级**：直接在 LuCI 或 SSH 执行 `sysupgrade -v <itb>`。
 - **从 YYH（`gemtek,xr1710g-ubi`）或 LEDE 刷入本固件**：因 `board_name` 字符串与原分支配置结构不同，请通过 SSH 上传 `.itb` 到 `/tmp/` 后使用 `-F -n`（不保留原路由配置，防止带入冲突项）：
   ```sh
-  sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261123-pure-ap-phaseg-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
+  sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261125-pure-ap-phasej-p0p1-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
   ```
 - **Pure-AP 首次上线配置提示**：本固件**不含 DHCP 服务器**（默认 `br-lan` 为静态管理地址）。建议刷入时通过精简 `sysupgrade -f` 仅保留 `network` / `wireless` / `system` / `dropbear` / `shadow`，或刷后先网线直连修改 `lan` IP 与上级主路由网关（示例：`192.168.3.4/24`，网关指向主路由 `192.168.3.1`）。
 
@@ -128,7 +131,7 @@ make -j$(nproc) world
 
 This repository maintains a **Pure-AP-Only Wi-Fi 7 baseline** for the **Gemtek XR1710G** (Airoha AN7581 quad-core A53 + MediaTek MT7996 tri-band Wi-Fi 7 + dual 10GbE RTL8261BE), derived from [naoki66/ImmortalWrt-for-Gemtek-brightspeed](https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed) (`475b6b67ca`, Linux `6.18.60`).
 
-Prebuilt firmware & checksums are published under [Releases (`xr1710g-pure-ap-phaseG-20261124`)](https://github.com/nijigenCG/ImmortalWrt-for-Gemtek-brightspeed/releases/tag/xr1710g-pure-ap-phaseG-20261124) (`20.54 MiB` / `21,532,990` bytes, `SHA256: c30db27cff9901a4100482d567170f745b5ff17cd3d864576b1a04458dda11d9`).
+Prebuilt firmware & checksums are published under [Releases (`xr1710g-pure-ap-phaseJ-p0p1-20261125`)](https://github.com/nijigenCG/ImmortalWrt-for-Gemtek-brightspeed/releases/tag/xr1710g-pure-ap-phaseJ-p0p1-20261125) (`20.54 MiB` / `21,532,990` bytes, `SHA256: 4b8ac7d234f495e1f3dcfd6082fe46461ea6b82d4a4a5b9bfd8c9b206c008c4a`).
 
 - **Kept for maximum L2 AP bridge performance**:
   - Airoha **NPU (`0.1111`)** + **PPE / PPE2 / L2B** hardware offload with **`bridger`** eBPF bridge acceleration (`cls_bpf`, `cls_flower`, `act_vlan`).
@@ -159,7 +162,7 @@ See the full analysis, Phase G PCIe0 & 6 GHz eBF A/B experiments, and server tun
 `naoki66`, this Pure-AP baseline (`gemtek,xr1710g`), `YYH` (`gemtek,xr1710g-ubi`), and `xmiqz` LEDE share the identical SPI-NAND UBI 2.0 layout (`ubi` at `0x00700000`, size `0x1b700000`, 439 MiB). When switching across variants with a different `board_name`, flash cleanly with:
 
 ```sh
-sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261123-pure-ap-phaseg-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
+sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261125-pure-ap-phasej-p0p1-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
 ```
 
 Note that `dnsmasq` and `odhcpd` are omitted by design; configure a static management IP on `br-lan` pointing to your upstream main router.

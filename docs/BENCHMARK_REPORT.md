@@ -70,6 +70,31 @@
 
 ---
 
+---
+
+### 3.5 Phase I (P0) & Phase J (P0+P1) 稳定性与运维增强回归验证（2026-11-25）
+
+在完整保留 Phase G（`npu_tx_band_map=2` + 6 GHz EHT320 硬件卸载引擎）的基础上，分两阶段采纳并实测验证了 OpenWrt 主线、`openwrt/mt76` 11 月上游及社区（`yahuisme` / `M1s4k1`）精选修复：
+
+- **Phase I（P0：`mt76` / NPU / RRO 核心稳定补丁包）**：
+  - 解包启用原双层包装未生效的 `128/129/132/134`（Full-Reset/L1 SER NPU 重启与重试、注册前保护、合并 `461aea7afc` 默认超时），移除未停 NPU 强清 Bus Master 的死补丁 `133`；
+  - 原位加固 `126-v2`（保留 refill-gated `dma_idx` + `dma_wmb()` + `READ_ONCE()` + `MAX_SKB_FRAGS`/OOM 安全回收）；
+  - 按拓扑序合入 24 个 `openwrt/mt76` 11 月核心补丁（含 `028951c4bf` HW-RRO `qos_ctl`、`3c17c4d96e` GCMP-256/BIGTK PN 校验、`742a17ccb2`/`4bbb6457ff`/`e3cc87292f` TWT/PS 保护非 MLD 终端、`59f00daa97`/`a4bc3dd95b` 消除 WTBL 竞态等）；
+  - 合入 `yahuisme` `913`（NPU 多描述符 TXFREE 线性化 + OOM `skb_headlen` 兜底）与 `914`（RRO 丢包/OOM 页面归还）。
+- **Phase J（P0+P1：零报错开机 + 10GbE 诊断 + single-wiphy 修复）**：
+  - `procd/001`：协调 AN7581 28s 硬件看门狗，开机 `dmesg` WDT 错误彻底归零；
+  - `iwinfo 998/999`：修复 single-wiphy 分频段独立扫描与按频率精确匹配的功率列表（`28 / 30 / 30 dBm`）；
+  - OpenWrt 主线 `844a34e63f`：启用 `arm,cortex-a53-pmu` 节点；
+  - `747-02` + `9999-40`：RTL8261BE `ethtool` 实报真实协商速率 + `ethtool -S` 29 项 GDM 硬件计数器；
+  - 清理双层死补丁 `929-03`（保持稳定运行的 PCIe Gen3 IDAC 校准参数不变）。
+
+| 验证阶段 | `dmesg` 错误/告警 | 客户端在线 | 6 GHz EHT320 实测（中距 `RSSI -39 dBm`） | 专项验收 |
+| :--- | :---: | :---: | :--- | :--- |
+| **Phase I (`P0`)** | 仅旧版 WDT 1 条，零内核/mt76 异常 | 2.4G: 35 / 5G: 2 / 6G: 1 | DL P16: `2,275.13 Mbps`（retry `1.95%`）<br>UL P4: `1,322.11 Mbps`（retry `0.34%`） | 三频功率 `28/30/30 dBm`，零 NPU/RRO/txfree 异常 |
+| **Phase J (`P0+P1`)** | **`NONE`（100% 零报错）** | 2.4G: 36 / 5G: 5 / 6G: 1 | DL P8: **`2,690.27 Mbps`**（**MPDU retry `0.75%`**，`MCS9 75.4%`）<br>UL P4: **`1,850.99 Mbps`**（retry `1.58%`，`MCS9 89.4%`） | WDT 报错清零；PMU 就绪；`ethtool -S wan` 实测 `1.02 GB RX / 2.78 GB TX` **0 error / 0 drop** |
+
+---
+
 ### 4. 发射功率梯度测试（Pure-AP Phase B v2）
 
 在 OnePlus 13 近场工况下（`fnOS` 已开启 `BBR + fq + 16 MB`），对比 AP 6 GHz 不同 `txpower` 设置：
@@ -96,7 +121,7 @@
 - **同分支（`gemtek,xr1710g`）升级**：直接使用 LuCI 页面或 `sysupgrade -v <itb>`。
 - **从其它分支（如 `gemtek,xr1710g-ubi` / LEDE）切换回本固件**：因 `board_name` 字符串与 `compat_version` 差异，`sysupgrade` 需加 `-F -n`：
   ```sh
-  sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261123-pure-ap-phaseg-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
+  sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261125-pure-ap-phasej-p0p1-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
   ```
 
 ---
