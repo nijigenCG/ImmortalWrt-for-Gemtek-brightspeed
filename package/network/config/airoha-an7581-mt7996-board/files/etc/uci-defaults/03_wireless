@@ -57,6 +57,14 @@ gemtek,w1700k-ubi)
 	uci set wireless.radio2.he_twt_responder='1'
 
 	uci commit wireless
+
+	# Refresh untouched stock /etc/rc.local on config-preserving sysupgrade
+	# so NPU 6G routing + 4-core IRQ pinning activate automatically.
+	if [ -f /rom/etc/rc.local ] && ! grep -q 'pin_irq' /etc/rc.local 2>/dev/null; then
+		if ! grep -Eqv '^[[:space:]]*(#|$|exit[[:space:]]+0[[:space:]]*$)' /etc/rc.local 2>/dev/null; then
+			cp -fp /rom/etc/rc.local /etc/rc.local
+		fi
+	fi
 	;;
 esac
 
