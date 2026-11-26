@@ -47,10 +47,12 @@ gemtek,w1700k-ubi)
 	uci set wireless.radio2.htmode='EHT320'
 	uci set wireless.radio2.txpower='30'
 	uci set wireless.radio2.disabled='0'
-	uci set wireless.radio2.eht_su_beamformer='1'
-	uci set wireless.radio2.eht_mu_beamformer='1'
-	uci set wireless.radio2.he_su_beamformer='1'
-	uci set wireless.radio2.he_mu_beamformer='1'
+	# Disable 6 GHz EHT320 TX beamformer by default: MT7996 WM firmware
+	# EHT sounding can collapse 6 GHz DL (MCS0-3 / MCS7 lock) on WCN7850 clients.
+	uci set wireless.radio2.eht_su_beamformer='0'
+	uci set wireless.radio2.eht_mu_beamformer='0'
+	uci set wireless.radio2.he_su_beamformer='0'
+	uci set wireless.radio2.he_mu_beamformer='0'
 	uci set wireless.radio2.he_bss_color='1'
 	uci set wireless.radio2.he_twt_responder='1'
 
