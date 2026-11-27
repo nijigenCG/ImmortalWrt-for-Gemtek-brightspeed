@@ -78,16 +78,68 @@
 
 ### 刷写与使用指引
 
-#### 分区兼容性与跨版本刷机
+#### 1. 全新刷入后的出厂默认配置（不保留配置 / `sysupgrade -n`）
+
+| 项目 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| **管理后台地址** | `http://192.168.50.1` | 静态 IP `192.168.50.1/24`（子网掩码 `255.255.255.0`），主机名 `XR1710G`，SSH 端口 `22` |
+| **登录用户名 / 密码** | `root` / **空（无密码）** | LuCI 网页与 SSH 均支持空密码首次登录，**登录后请第一时间修改密码** |
+| **默认网口分工** | LAN：`lan2`、`lan3`、`lan4`（`br-lan`）<br>WAN：`wan`（独立 DHCP 客户端） | 默认防火墙拒绝 WAN 口入站，**首次配置请连 `lan2`/`lan3`/`lan4` 或默认 Wi-Fi，不要先插 `wan` 口** |
+| **DHCP 服务** | **已彻底移除（无 DHCP 服务端）** | 电脑/手机刚刷完连网线或 Wi-Fi **不会自动获取 IP**，需先手动配置 `192.168.50.x/24` 静态 IP |
+| **默认 Wi-Fi（国家码 `US`）** | 2.4G：**`ImmortalWrt-2G`**（`WPA2-PSK` / `HE20` / 自动信道 / `28 dBm`）<br>5G：**`ImmortalWrt-5G`**（`WPA2/WPA3` / `EHT160` / 信道 `36` / `30 dBm`）<br>6G：**`ImmortalWrt-6G`**（`WPA3-SAE` / `EHT320` / 信道 `37` / `30 dBm`，默认关闭 TX `eBF`） | **三频统一初始无线密码：`12345678`**；首次登录后请及时修改 SSID 与无线密码 |
+
+> **关键提示**：由于本固件永久精简了 `dnsmasq` 与 `odhcpd`，全新刷机重启后**必须给电脑或手机手动指定静态 IP**（例如 IP `192.168.50.10`、子网掩码 `255.255.255.0`，网关留空或填 `192.168.50.1`），然后通过网线接入 `lan2`/`lan3`/`lan4`（或连接上述默认 Wi-Fi），即可打开 `http://192.168.50.1` 或 `ssh root@192.168.50.1` 进入管理界面。
+
+#### 2. 首次上线配置为 Pure-AP（四口全桥接二层 AP）
+
+完成以下几步后，即可把全部 4 个网口（双 10GbE `wan`/`lan2` + 双 1GbE `lan3`/`lan4`）合并为同一个二层网桥，接入你的主路由：
+
+**方式 A：通过 LuCI 网页配置（推荐新手）**
+1. 电脑手动配静态 IP `192.168.50.10/24`，网线接 `lan2`/`lan3`/`lan4`（或连默认 Wi-Fi `ImmortalWrt-5G`，密码 `12345678`），访问 `http://192.168.50.1`，用户名 `root`、密码留空登录。
+2. **设置登录密码**：进入「系统 → 管理权」，设置 `root` 密码并保存。
+3. **关闭并删除独立 WAN 接口**：进入「网络 → 接口」，删除 `wan` 和 `wan6` 接口。
+4. **将 `wan` 物理口并入 `br-lan`**：进入「网络 → 接口 → 设备」，编辑 `br-lan`，在「网桥端口」中勾选/添加 `wan`（最终包含 `lan2`、`lan3`、`lan4`、`wan`），点击保存。
+5. **修改管理 IP 为主路由同网段**：进入「网络 → 接口」，编辑 `lan`：
+   - **静态管理 IP（推荐）**：将 IPv4 地址改为主路由同网段未占用地址（例如主路由是 `192.168.3.1`，则填 `192.168.3.4/24`），IPv4 网关与自定义 DNS 均填主路由 IP（如 `192.168.3.1`）；
+   - **或改为 DHCP 客户端**：若希望由主路由自动分配管理 IP，也可直接将 `lan` 协议切换为 `DHCP 客户端`。
+   - 点击「保存并应用」（若弹出回滚倒计时且已切换网段，请选择「强制应用」）。
+6. **修改 Wi-Fi 名称与密码**：进入「网络 → 无线」，按需修改 2.4G / 5G / 6G 的 SSID 与无线密码（**建议保持 6 GHz `radio2` 的 TX Beamformer 关闭状态**，避免过夜 EHT Sounding 锁速）。
+7. **接入主路由**：将电脑网卡改回「自动获取 IP (DHCP)」，用网线将 XR1710G 任意 10GbE 网口（原 `wan` 或 `lan2`）连到上级主路由/交换机，之后直接通过新管理 IP（如 `http://192.168.3.4`）访问即可。
+
+**方式 B：通过 SSH 一键配置（以主路由 `192.168.3.1`、AP 管理地址 `192.168.3.4/24` 为例）**
+```sh
+# 1. 电脑手动配 192.168.50.10/24 后登录：ssh root@192.168.50.1（空密码）
+passwd  # 修改 root 密码
+
+# 2. 四口全桥接 + 删除独立 wan/wan6 + 设为主路由同网段静态管理 IP
+uci -q del_list network.@device[0].ports='wan'
+uci add_list network.@device[0].ports='wan'
+uci -q delete network.wan
+uci -q delete network.wan6
+uci set network.lan.proto='static'
+uci -q delete network.lan.ipaddr
+uci add_list network.lan.ipaddr='192.168.3.4/24'
+uci -q delete network.lan.netmask
+uci set network.lan.gateway='192.168.3.1'
+uci -q delete network.lan.dns
+uci add_list network.lan.dns='192.168.3.1'
+uci commit network
+/etc/init.d/network restart
+```
+> 若希望 `br-lan` 由上级主路由 DHCP 自动分配管理 IP，把上面 `network.lan` 相关几行替换为：`uci set network.lan.proto='dhcp' && uci -q delete network.lan.ipaddr && uci -q delete network.lan.netmask && uci -q delete network.lan.gateway && uci -q delete network.lan.dns`。
+>
+> **Phase J v2 开箱自动优化说明**：本镜像已将 `npu_tx_band_map=2`、四核 GICv3 IRQ 分核（`/etc/rc.local`）以及 6 GHz `radio2` 默认关闭 `eBF` 全部内置，刷完即可冷启动生效，无需再手动执行 Phase G 调优命令。
+
+#### 3. 分区兼容性与跨版本刷机
 
 本固件、`naoki66` 原版、`YYH` (`gemtek,xr1710g-ubi`) 与 `xmiqz` LEDE 均使用**完全一致的 SPI-NAND UBI 2.0 分区布局**（`ubi` 起始 `0x00700000`、大小 `0x1b700000` / 439 MiB）。
 
-- **从同系列（`gemtek,xr1710g`）升级**：直接在 LuCI 或 SSH 执行 `sysupgrade -v <itb>`。
+- **从同系列（`gemtek,xr1710g`）升级**：直接在 LuCI 或 SSH 执行 `sysupgrade -v <itb>`（建议仅保留 `network` / `wireless` / `system` / `dropbear` / `shadow` 等纯 AP 配置；若旧 `/etc/rc.local` 未改动，升级后会自动刷新为新版内置脚本）。
 - **从 YYH（`gemtek,xr1710g-ubi`）或 LEDE 刷入本固件**：因 `board_name` 字符串与原分支配置结构不同，请通过 SSH 上传 `.itb` 到 `/tmp/` 后使用 `-F -n`（不保留原路由配置，防止带入冲突项）：
   ```sh
   sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261126-pure-ap-phasej-v2-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
   ```
-- **Pure-AP 首次上线配置提示**：本固件**不含 DHCP 服务器**（默认 `br-lan` 为静态管理地址）。建议刷入时通过精简 `sysupgrade -f` 仅保留 `network` / `wireless` / `system` / `dropbear` / `shadow`，或刷后先网线直连修改 `lan` IP 与上级主路由网关（示例：`192.168.3.4/24`，网关指向主路由 `192.168.3.1`）。
+  刷机重启完成后，按上方「第 1、2 节」手动设 `192.168.50.x/24` 静态 IP 接入 `http://192.168.50.1` 完成首次配置即可。
 
 ---
 
@@ -160,7 +212,46 @@ See the full analysis, Phase G PCIe0 & 6 GHz eBF A/B experiments, and server tun
 3. **MT7996 Phase B Controls & EHT320 Fixes (`9996`, `9997`)**: Adds live debugfs switches `sku_power_ctrl` / `bf_backoff_ctrl`, fixes `mt7996_mcu_sta_bfer_eht()` 320 MHz sounding dim shift (`<< 2`), and raises `max_amsdu_num` from `8` to `31`.
 4. **MT7996 Phase G PCIe0 NPU Map & EHT320 BF/HE/RC Fixes (`9998`, `9999`)**: Adds runtime `npu_tx_band_map` (`0=stock`, `1=6G->PCIe0`, `2=5G+6G->PCIe0` Gen3 x2 `15.752 Gb/s`), fixes `mt7996_mcu_sta_bfer_eht()` BW320→BW160 fallthrough + clamping + `ng16`/`codebook`, adds `BW320` case in `mt7996_mcu_sta_he_tlv()`, syncs `STA_REC_BF` in `mt7996_mcu_add_rate_ctrl()`, and logs concise `STA_REC_BF` diagnostics.
 
-### Flashing & Partition Compatibility
+### Flashing & Pure-AP Setup Guide
+
+#### 1. Fresh Install Defaults (`sysupgrade -n` / Clean Flash)
+
+| Item | Default Value | Notes |
+| :--- | :--- | :--- |
+| **Management Address** | `http://192.168.50.1` | Static `192.168.50.1/24` (netmask `255.255.255.0`), hostname `XR1710G`, SSH `:22` |
+| **Username / Password** | `root` / *(empty)* | Blank password works for both LuCI and SSH on first boot; set a password immediately |
+| **Default Port Layout** | LAN: `lan2`, `lan3`, `lan4` (`br-lan`)<br>WAN: `wan` (DHCP client) | Firewall rejects WAN input by default; connect via `lan2`/`lan3`/`lan4` or default Wi-Fi first |
+| **DHCP Server** | **Removed (`dnsmasq`/`odhcpd` omitted)** | Clients will **not** receive an IP automatically on first boot; set a static IP (`192.168.50.x/24`) on your PC/phone |
+| **Default Wi-Fi (Country `US`)** | 2.4 GHz: **`ImmortalWrt-2G`** (`WPA2-PSK`, `HE20`, auto ch, `28 dBm`)<br>5 GHz: **`ImmortalWrt-5G`** (`WPA2/WPA3`, `EHT160`, ch `36`, `30 dBm`)<br>6 GHz: **`ImmortalWrt-6G`** (`WPA3-SAE`, `EHT320`, ch `37`, `30 dBm`, TX `eBF=0`) | **Default Wi-Fi password for all 3 bands: `12345678`**; change SSIDs and passphrases after login |
+
+> **First-Boot Connection Tip**: Because `dnsmasq` and `odhcpd` are removed by design, assign a static IP such as `192.168.50.10` / `255.255.255.0` on your PC or phone, connect to `lan2`/`lan3`/`lan4` (or one of the default Wi-Fi networks above), and open `http://192.168.50.1` or `ssh root@192.168.50.1`.
+
+#### 2. Configuring as a 4-Port L2 Pure AP
+
+1. **Set a root password** (`System → Administration` in LuCI or `passwd` over SSH).
+2. **Bridge all 4 Ethernet ports (`lan2`, `lan3`, `lan4`, `wan`) into `br-lan`** and remove the standalone `wan`/`wan6` interfaces so both 10GbE ports and both 1GbE ports act as a single L2 switch/AP bridge.
+3. **Move `lan` onto your main router's subnet** (static IP + gateway + DNS pointing to your main router, or `proto='dhcp'`), then update your Wi-Fi SSIDs and passwords (keep 6 GHz `radio2` TX Beamformer disabled to avoid overnight EHT Sounding stalls).
+
+Example SSH one-shot setup (main router `192.168.3.1`, AP management IP `192.168.3.4/24`):
+```sh
+passwd
+uci -q del_list network.@device[0].ports='wan'
+uci add_list network.@device[0].ports='wan'
+uci -q delete network.wan
+uci -q delete network.wan6
+uci set network.lan.proto='static'
+uci -q delete network.lan.ipaddr
+uci add_list network.lan.ipaddr='192.168.3.4/24'
+uci -q delete network.lan.netmask
+uci set network.lan.gateway='192.168.3.1'
+uci -q delete network.lan.dns
+uci add_list network.lan.dns='192.168.3.1'
+uci commit network
+/etc/init.d/network restart
+```
+Then revert your PC back to DHCP and plug either 10GbE port (`wan` or `lan2`) into your upstream router/switch. In **Phase J v2**, `npu_tx_band_map=2`, 4-core GICv3 IRQ affinity (`/etc/rc.local`), and 6 GHz `eBF=0` are baked in and activate automatically on cold boot.
+
+#### 3. Partition Compatibility & Cross-Flashing
 
 `naoki66`, this Pure-AP baseline (`gemtek,xr1710g`), `YYH` (`gemtek,xr1710g-ubi`), and `xmiqz` LEDE share the identical SPI-NAND UBI 2.0 layout (`ubi` at `0x00700000`, size `0x1b700000`, 439 MiB). When switching across variants with a different `board_name`, flash cleanly with:
 
@@ -168,7 +259,7 @@ See the full analysis, Phase G PCIe0 & 6 GHz eBF A/B experiments, and server tun
 sysupgrade -F -v -n /tmp/immortalwrt-nijigencg-20261126-pure-ap-phasej-v2-airoha-an7581-gemtek_xr1710g-squashfs-sysupgrade.itb
 ```
 
-Note that `dnsmasq` and `odhcpd` are omitted by design; configure a static management IP on `br-lan` pointing to your upstream main router.
+After reboot, follow steps 1 and 2 above to connect via static IP `192.168.50.x/24` and complete Pure-AP onboarding.
 
 ### Build & Pre-Flash Verification
 
