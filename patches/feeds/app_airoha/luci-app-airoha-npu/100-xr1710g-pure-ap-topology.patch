@@ -13,26 +13,121 @@ index 2c4a8b7..9da69c3 100644
  TITLE:=LuCI Airoha XR1710G / XG2010G Status
 diff --git a/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/pure-ap.css b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/pure-ap.css
 new file mode 100644
-index 0000000..866ca23
+index 0000000..ed15427
 --- /dev/null
 +++ b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/pure-ap.css
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,274 @@
 +.pure-ap-board {
-+	color-scheme: light dark;
-+	--pap-bg: var(--background-color-high, light-dark(#fcfefd, #1c2824));
-+	--pap-case: light-dark(#dce7df, #25352d);
-+	--pap-board: light-dark(#e3efe6, #172921);
-+	--pap-border: light-dark(#a7bdb0, #516e5f);
-+	--pap-copper: light-dark(#957543, #b99b64);
-+	--pap-accent: light-dark(#1b624a, #9bdfbc);
-+	--pap-active: light-dark(#d7ede0, #234031);
-+	--pap-rf: light-dark(#e3eef7, #203541);
-+	--pap-rf-line: light-dark(#46738d, #8fbcd7);
-+	--pap-socket: light-dark(#354a40, #0b1710);
 +	margin-block-end: 1rem;
++	padding: .875rem;
++	color: var(--pap-text);
++	background: var(--pap-canvas);
++	border-radius: var(--pap-radius);
 +}
 +
-+.pure-ap-board h3, .pure-ap-board h4 { margin: 0 0 .5rem; }
++.pure-ap-board[data-pap-theme="frost"] {
++	color-scheme: light;
++	--pap-text: #142a3b;
++	--pap-muted: #3f576d;
++	--pap-bg: #f5fbffe8;
++	--pap-case: #e2f0f5;
++	--pap-package: #e5f3f8cf;
++	--pap-board: #d5ecf5;
++	--pap-border: #809fb4;
++	--pap-copper: #698496;
++	--pap-accent: #06666f;
++	--pap-active: #d0f4ef;
++	--pap-rf: #dde8f9;
++	--pap-rf-line: #2d538c;
++	--pap-socket: #243d5a;
++	--pap-canvas: radial-gradient(ellipse at 5% 4%, #dbf7f1, transparent 42%),
++		radial-gradient(ellipse at 96% 44%, #eee4f9, transparent 48%), #e2eff7;
++	--pap-radius: 1.375rem;
++	--pap-shine: #ffffffce;
++	--pap-shadow: #385f7b26;
++	--pap-deep: #b3d6ec;
++	--pap-ambient: #f1e7fb;
++}
++
++.pure-ap-board[data-pap-theme="smoke"] {
++	color-scheme: dark;
++	--pap-text: #f5efff;
++	--pap-muted: #c7bbdd;
++	--pap-bg: #2c2841df;
++	--pap-case: #423956;
++	--pap-package: #3a3252d4;
++	--pap-board: #28253f;
++	--pap-border: #9181b2;
++	--pap-copper: #aa98ba;
++	--pap-accent: #9ae7da;
++	--pap-active: #28504c;
++	--pap-rf: #40355d;
++	--pap-rf-line: #d0bfff;
++	--pap-socket: #100e1f;
++	--pap-canvas: radial-gradient(ellipse at 90% 4%, #473a6b, transparent 48%),
++		radial-gradient(ellipse at 2% 75%, #244650, transparent 42%), #1e1a32;
++	--pap-radius: 1.375rem;
++	--pap-shine: #d1c6ff73;
++	--pap-shadow: #0b081f86;
++	--pap-deep: #2d2b47;
++	--pap-ambient: #474064;
++}
++
++.pure-ap-board[data-pap-theme="paper"] {
++	color-scheme: light;
++	--pap-text: #253143;
++	--pap-muted: #536073;
++	--pap-bg: #fcfaf5;
++	--pap-case: #e8e2d7;
++	--pap-package: #efede8;
++	--pap-board: #f7f4ed;
++	--pap-border: #a5acb4;
++	--pap-copper: #767f8e;
++	--pap-accent: #883d2c;
++	--pap-active: #f5dfd5;
++	--pap-rf: #e4ebf6;
++	--pap-rf-line: #2f5287;
++	--pap-socket: #353f4b;
++	--pap-canvas: var(--pap-board);
++	--pap-radius: .6rem;
++}
++
++.pure-ap-board[data-pap-theme="ink"] {
++	color-scheme: dark;
++	--pap-text: #edf2fb;
++	--pap-muted: #b2bfd3;
++	--pap-bg: #232e40;
++	--pap-case: #303e54;
++	--pap-package: #253147;
++	--pap-board: #1c2636;
++	--pap-border: #65738c;
++	--pap-copper: #8290a9;
++	--pap-accent: #ffd18b;
++	--pap-active: #443628;
++	--pap-rf: #293e5f;
++	--pap-rf-line: #bbd4ff;
++	--pap-socket: #121b2a;
++	--pap-canvas: var(--pap-board);
++	--pap-radius: .6rem;
++}
++
++.pure-ap-board h3, .pure-ap-board h4 { margin: 0 0 .5rem; color: inherit; }
++.pap-heading, .pap-heading label {
++	display: flex;
++	align-items: center;
++	flex-wrap: wrap;
++	gap: .5rem;
++}
++.pap-heading { justify-content: space-between; margin-block-end: .5rem; }
++.pap-heading h3 { margin: 0; }
++.pure-ap-board select {
++	min-width: 0;
++	color: inherit;
++	background: var(--pap-bg);
++	border-color: var(--pap-border);
++}
++.pure-ap-board input { accent-color: var(--pap-accent); }
++.pure-ap-board small, .pap-caption { color: var(--pap-muted); }
 +.pap-controls, .pap-grid, .pap-lanes { display: grid; gap: .5rem; }
 +.pap-controls, .pap-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 +.pap-controls label {
@@ -48,10 +143,9 @@ index 0000000..866ca23
 +.pap-caption { font-size: .875rem; margin: .4rem 0 .75rem; }
 +.pap-board {
 +	padding: .8rem 1rem 1rem;
-+	background: radial-gradient(circle, var(--pap-border) .65px, transparent .9px) 6px 6px / 13px 13px, var(--pap-board);
++	background: var(--pap-board);
 +	border: 1px solid var(--pap-border);
-+	border-radius: 1.2rem;
-+	box-shadow: inset 0 0 0 4px var(--pap-case), 0 3px 0 var(--pap-case);
++	border-radius: .4rem;
 +}
 +.pap-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 +.pap-node {
@@ -134,7 +228,7 @@ index 0000000..866ca23
 +	padding: .5rem;
 +	border: 1px solid var(--pap-border);
 +	border-radius: .35rem;
-+	background: var(--pap-case);
++	background: var(--pap-package);
 +}
 +.pap-package::before, .pap-package::after {
 +	content: ""; position: absolute; inset: 10px auto 10px -5px; width: 4px;
@@ -159,9 +253,37 @@ index 0000000..866ca23
 +}
 +.pap-inspector p { margin: .2rem 0; }
 +.pap-inspector-value { font-variant-numeric: tabular-nums; }
++.pure-ap-board:is([data-pap-theme="frost"], [data-pap-theme="smoke"]) .pap-board {
++	background: radial-gradient(ellipse at 15% 0%, var(--pap-shine), transparent 46%),
++		radial-gradient(ellipse at 96% 90%, var(--pap-ambient), transparent 66%),
++		linear-gradient(134deg, var(--pap-board), var(--pap-deep));
++	border-color: var(--pap-shine);
++	border-radius: 1.5rem;
++	box-shadow: inset 0 1px 0 var(--pap-shine), 0 8px 23px var(--pap-shadow);
++}
++.pure-ap-board:is([data-pap-theme="frost"], [data-pap-theme="smoke"])
++	:is(.pap-package, .pap-node-jack, .pap-controls label, .pap-inspector) {
++	border-radius: .8rem;
++	box-shadow: inset 0 1px 0 var(--pap-shine), 0 3px 12px var(--pap-shadow);
++}
++.pure-ap-board:is([data-pap-theme="frost"], [data-pap-theme="smoke"]) .pap-package { backdrop-filter: blur(10px); }
++.pure-ap-board:is([data-pap-theme="frost"], [data-pap-theme="smoke"]) .pap-controls label { background: var(--pap-bg); }
++.pure-ap-board:is([data-pap-theme="frost"], [data-pap-theme="smoke"]) .pap-lanes .pap-node { border-radius: 1rem; }
++.pure-ap-board:is([data-pap-theme="paper"], [data-pap-theme="ink"]) .pap-node-jack { box-shadow: none; }
++.pure-ap-board:is([data-pap-theme="paper"], [data-pap-theme="ink"]) .pap-package::before,
++.pure-ap-board:is([data-pap-theme="paper"], [data-pap-theme="ink"]) .pap-package::after { display: none; }
++.pure-ap-board:is([data-pap-theme="paper"], [data-pap-theme="ink"]) .pap-node-probe {
++	border-width: 1px 0 0;
++	border-radius: 0;
++	background: transparent;
++}
++@media (prefers-reduced-transparency: reduce) {
++	.pure-ap-board .pap-board .pap-package { backdrop-filter: none; }
++}
 +.pap-advanced { margin-block: .75rem; }
 +.pap-advanced summary { cursor: pointer; font-weight: 600; padding-block: .5rem; }
 +@media (max-width: 600px) {
++	.pure-ap-board { padding: .5rem; }
 +	.pap-controls, .pap-observations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 +	.pap-controls { grid-template-columns: 1fr; }
 +	.pap-board { padding: .55rem; }
@@ -171,10 +293,10 @@ index 0000000..866ca23
 +}
 diff --git a/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/pure_ap.js b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/pure_ap.js
 new file mode 100644
-index 0000000..c0db5be
+index 0000000..8663124
 --- /dev/null
 +++ b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/pure_ap.js
-@@ -0,0 +1,277 @@
+@@ -0,0 +1,302 @@
 +'use strict';
 +'require baseclass';
 +'require rpc';
@@ -190,6 +312,13 @@ index 0000000..c0db5be
 +	[[1, 2], [0]]
 +];
 +var bands = ['2.4', '5', '6'];
++var themeKey = 'luci.airoha_npu.pure_ap.appearance';
++var themes = [
++	['frost', _('Ice blue glass')],
++	['smoke', _('Smoky violet glass')],
++	['paper', _('Paper flat')],
++	['ink', _('Midnight blue flat')]
++];
 +var descriptions = {
 +	gsw: ['LAN3 / LAN4', _('The two 1 GbE ports share the internal switch.')],
 +	wan: ['10G WAN', _('Physical 10 GbE port. The link label shows whether it belongs to br-lan.')],
@@ -239,6 +368,9 @@ index 0000000..c0db5be
 +	var selectedTitle = E('strong');
 +	var selectedText = E('p');
 +	var selectedValue = E('div', { 'class': 'pap-inspector-value' });
++	var themeInput = E('select', {}, themes.map(function(theme) {
++		return E('option', { 'value': theme[0] }, theme[1]);
++	}));
 +	var bridgeInput = E('input', { 'type': 'checkbox', 'role': 'switch' });
 +	var mapInput = E('select', {}, [
 +		E('option', { 'value': '' }, _('Unavailable')),
@@ -310,7 +442,10 @@ index 0000000..c0db5be
 +		])
 +	]);
 +	var root = E('section', { 'class': 'pure-ap-board' }, [
-+		E('h3', {}, _('Hardware layout')),
++		E('div', { 'class': 'pap-heading' }, [
++			E('h3', {}, _('Hardware layout')),
++			E('label', {}, [E('span', {}, _('Appearance')), themeInput])
++		]),
 +		E('div', { 'class': 'pap-controls' }, [
 +			E('label', {}, [E('span', {}, _('Layer 2 hardware offload (bridger)')), bridgeInput]),
 +			E('label', {}, [E('span', {}, _('Wi-Fi NPU TX mapping')), mapInput])
@@ -319,6 +454,18 @@ index 0000000..c0db5be
 +		board,
 +		E('div', { 'class': 'pap-inspector', 'aria-live': 'polite' }, [selectedTitle, selectedText, selectedValue])
 +	]);
++	var appearance = null;
++	try { appearance = window.localStorage.getItem(themeKey); }
++	catch (error) { /* Browser storage can be disabled. */ }
++	if (!themes.some(function(theme) { return theme[0] === appearance; }))
++		appearance = themes[0][0];
++	themeInput.value = appearance;
++	root.dataset.papTheme = appearance;
++	themeInput.addEventListener('change', function() {
++		root.dataset.papTheme = themeInput.value;
++		try { window.localStorage.setItem(themeKey, themeInput.value); }
++		catch (error) { /* The current page can still use the choice. */ }
++	});
 +
 +	function updateControls() {
 +		bridgeInput.checked = status.bridger_running === true;
@@ -597,10 +744,10 @@ index 3c846e4..bda59c2 100644
  
  		// First paint is deliberately two requests, in order: the fast half
 diff --git a/luci-app-airoha-npu/po/templates/luci-app-airoha-npu.pot b/luci-app-airoha-npu/po/templates/luci-app-airoha-npu.pot
-index 5752dd2..850d4d3 100644
+index 5752dd2..2b1897b 100644
 --- a/luci-app-airoha-npu/po/templates/luci-app-airoha-npu.pot
 +++ b/luci-app-airoha-npu/po/templates/luci-app-airoha-npu.pot
-@@ -842,3 +842,114 @@ msgstr ""
+@@ -842,3 +842,129 @@ msgstr ""
  
  msgid "Load Average"
  msgstr ""
@@ -715,11 +862,26 @@ index 5752dd2..850d4d3 100644
 +
 +msgid "Detailed diagnostics"
 +msgstr ""
++
++msgid "Appearance"
++msgstr ""
++
++msgid "Ice blue glass"
++msgstr ""
++
++msgid "Smoky violet glass"
++msgstr ""
++
++msgid "Paper flat"
++msgstr ""
++
++msgid "Midnight blue flat"
++msgstr ""
 diff --git a/luci-app-airoha-npu/po/zh_Hans/luci-app-airoha-npu.po b/luci-app-airoha-npu/po/zh_Hans/luci-app-airoha-npu.po
-index 887cd63..d4adb17 100644
+index 887cd63..175ae4e 100644
 --- a/luci-app-airoha-npu/po/zh_Hans/luci-app-airoha-npu.po
 +++ b/luci-app-airoha-npu/po/zh_Hans/luci-app-airoha-npu.po
-@@ -843,3 +843,114 @@ msgstr "丢弃"
+@@ -843,3 +843,129 @@ msgstr "丢弃"
  
  msgid "Load Average"
  msgstr "平均负载"
@@ -834,6 +996,21 @@ index 887cd63..d4adb17 100644
 +
 +msgid "Detailed diagnostics"
 +msgstr "详细诊断"
++
++msgid "Appearance"
++msgstr "外观"
++
++msgid "Ice blue glass"
++msgstr "冰蓝玻璃"
++
++msgid "Smoky violet glass"
++msgstr "烟紫玻璃"
++
++msgid "Paper flat"
++msgstr "纸感扁平"
++
++msgid "Midnight blue flat"
++msgstr "墨蓝扁平"
 diff --git a/luci-app-airoha-npu/root/usr/libexec/rpcd/luci.airoha_npu b/luci-app-airoha-npu/root/usr/libexec/rpcd/luci.airoha_npu
 index 9a09508..c281cb8 100644
 --- a/luci-app-airoha-npu/root/usr/libexec/rpcd/luci.airoha_npu
