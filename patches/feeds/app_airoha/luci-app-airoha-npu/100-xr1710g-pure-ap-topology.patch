@@ -599,10 +599,13 @@ index 0000000..8663124
 +}
 +
 +return baseclass.extend({ getStatus: callStatus, create: create, ensureCss: ensureCss });
-diff --git a/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/status.js b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/status.js
+diff --git a/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/status.js b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/soc_status.js
+similarity index 97%
+rename from luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/status.js
+rename to luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/soc_status.js
 index 3c846e4..bda59c2 100644
 --- a/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/status.js
-+++ b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/status.js
++++ b/luci-app-airoha-npu/htdocs/luci-static/resources/view/airoha_npu/soc_status.js
 @@ -3,6 +3,7 @@
  'require poll';
  'require rpc';
@@ -1158,6 +1161,19 @@ index 9a09508..c281cb8 100644
  			getPpeEntries)
  				get_ppe_entries
  				;;
+diff --git a/luci-app-airoha-npu/root/usr/share/luci/menu.d/luci-app-airoha-npu.json b/luci-app-airoha-npu/root/usr/share/luci/menu.d/luci-app-airoha-npu.json
+index d57abcb..19b04e7 100644
+--- a/luci-app-airoha-npu/root/usr/share/luci/menu.d/luci-app-airoha-npu.json
++++ b/luci-app-airoha-npu/root/usr/share/luci/menu.d/luci-app-airoha-npu.json
+@@ -2,7 +2,7 @@
+ 	"admin/status/airoha": {
+ 		"title": "Airoha Soc",
+ 		"order": 15,
+-		"action": { "type": "view", "path": "airoha_npu/status" },
++		"action": { "type": "view", "path": "airoha_npu/soc_status" },
+ 		"depends": { "acl": [ "luci-app-airoha-npu" ] }
+ 	}
+ }
 diff --git a/luci-app-airoha-npu/root/usr/share/rpcd/acl.d/luci-app-airoha-npu.json b/luci-app-airoha-npu/root/usr/share/rpcd/acl.d/luci-app-airoha-npu.json
 index 2bb59fa..f89466a 100644
 --- a/luci-app-airoha-npu/root/usr/share/rpcd/acl.d/luci-app-airoha-npu.json
