@@ -9,13 +9,14 @@ lighter blur/transparency values instead of the upstream defaults.
 diff --git a/root/etc/config/argon b/root/etc/config/argon
 --- a/root/etc/config/argon
 +++ b/root/etc/config/argon
-@@ -1,12 +1,12 @@
+@@ -1,14 +1,14 @@
  config global
 -	option login_style 'classic'
++	option login_style 'centered'
  	option primary '#5e72e4'
  	option dark_primary '#483d8b'
--	option dark_primary_mode 'auto'
--	option dark_glass_mode 'inherit'
+ 	option dark_primary_mode 'auto'
+ 	option dark_glass_mode 'inherit'
 -	option blur '10'
 -	option blur_dark '10'
 -	option transparency '0.5'
@@ -27,6 +28,5 @@ diff --git a/root/etc/config/argon b/root/etc/config/argon
  	option mode 'normal'
 -	option online_wallpaper 'none'
 +	option online_wallpaper 'bing'
-+	option dark_primary_mode 'auto'
-+	option dark_glass_mode 'inherit'
-+	option login_style 'centered'
+ 	option main_background '0'
+ 	option main_glass '1'

@@ -1015,7 +1015,7 @@ index 887cd63..175ae4e 100644
 +msgid "Midnight blue flat"
 +msgstr "墨蓝扁平"
 diff --git a/luci-app-airoha-npu/root/usr/libexec/rpcd/luci.airoha_npu b/luci-app-airoha-npu/root/usr/libexec/rpcd/luci.airoha_npu
-index 9a09508..c281cb8 100644
+index 9a09508..c281cb8 100755
 --- a/luci-app-airoha-npu/root/usr/libexec/rpcd/luci.airoha_npu
 +++ b/luci-app-airoha-npu/root/usr/libexec/rpcd/luci.airoha_npu
 @@ -1483,9 +1483,127 @@ get_dashboard() {
